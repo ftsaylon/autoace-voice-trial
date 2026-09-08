@@ -64,4 +64,12 @@ See [docs/TECHNICAL_MEMO.md](docs/TECHNICAL_MEMO.md) for model choice, cost, lat
 
 ## Deploy
 
-Set the same environment variables on the host. The app expects a Node runtime with disk (`data/app.db` and `data/audio`) or `DATABASE_URL` pointing at libsql/Turso. ffmpeg-static is bundled. `maxDuration` on analysis routes is 300 seconds.
+A production deploy is at https://workspace-beryl-nine-33.vercel.app.
+
+Sign in with username `autoace` and password `trial-eval-2026`.
+
+Set `GOOGLE_GENERATIVE_AI_API_KEY` on the host before scoring hidden audio. Without it, clips fail with `classifier_unavailable`.
+
+Vercel serverless uses `/tmp` for SQLite and audio. ffmpeg-static's install script is skipped on some Vercel builds, so decode can fail there. For the evaluation period, run `npm run start` (or `npm run dev`) on a Node host with disk if you need local acoustics plus Gemini.
+
+Environment variables: `AUTOACE_USER`, `AUTOACE_PASSWORD`, `SESSION_SECRET` (32+ characters), `GOOGLE_GENERATIVE_AI_API_KEY`, optional `DATABASE_URL` and `AUDIO_ROOT`. `maxDuration` on analysis routes is 300 seconds.
