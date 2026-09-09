@@ -41,7 +41,11 @@ export const BatchList = ({
   const filterOptions = useMemo(() => {
     const counts = new Map<BatchFilter, number>(FILTERS.map((item) => [item, 0]))
     for (const batch of batches ?? []) {
-      counts.set(batch.status, (counts.get(batch.status) ?? 0) + 1)
+      if (batch.status === "uploading") {
+        counts.set("running", (counts.get("running") ?? 0) + 1)
+      } else {
+        counts.set(batch.status, (counts.get(batch.status) ?? 0) + 1)
+      }
       counts.set("all", (counts.get("all") ?? 0) + 1)
     }
     return FILTER_OPTIONS.map((option) => ({
@@ -56,6 +60,11 @@ export const BatchList = ({
     }
     if (filter === "all") {
       return batches
+    }
+    if (filter === "running") {
+      return batches.filter(
+        (batch) => batch.status === "running" || batch.status === "uploading",
+      )
     }
     return batches.filter((batch) => batch.status === filter)
   }, [batches, filter])

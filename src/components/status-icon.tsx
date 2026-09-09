@@ -11,10 +11,17 @@ export const StatusIcon = ({
   status,
   className,
 }: {
-  status: "draft" | "queued" | "running" | "complete" | "failed" | "succeeded"
+  status:
+    | "draft"
+    | "uploading"
+    | "queued"
+    | "running"
+    | "complete"
+    | "failed"
+    | "succeeded"
   className?: string
 }) => {
-  if (status === "running") {
+  if (status === "running" || status === "uploading") {
     return (
       <LoaderCircleIcon
         className={cn("size-4 animate-spin text-foreground", className)}

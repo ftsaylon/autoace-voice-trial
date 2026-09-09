@@ -4,7 +4,7 @@ import {
   type IncomingFile,
   type ParsedBatchInput,
 } from "@/application/parse-batch"
-import { autoAceJsonString } from "@/domain"
+import { autoAceJsonString, fromAutoAceJson } from "@/domain"
 import { mediaTypeFor } from "@/lib/media-type"
 
 export type PreparedClip = {
@@ -62,6 +62,25 @@ export const clipsToUploads = (parsed: ParsedBatchInput): ClipUpload[] => {
     goldJson: clip.gold ? autoAceJsonString(clip.gold) : undefined,
     status: "pending" as const,
   }))
+}
+
+export const parsedInputFromUploads = (
+  uploads: ClipUpload[],
+  parseIssues: string[],
+): ParsedBatchInput => {
+  return {
+    parseIssues,
+    clips: uploads.map((clip) => ({
+      name: clip.name,
+      bytes: clip.bytes,
+      gold: clip.goldJson
+        ? (() => {
+            const parsed = fromAutoAceJson(clip.goldJson)
+            return parsed.ok ? parsed.value : null
+          })()
+        : null,
+    })),
+  }
 }
 
 export const storageIdsFromUploads = (uploads: ClipUpload[]): string[] => {

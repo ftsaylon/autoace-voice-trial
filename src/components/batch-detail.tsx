@@ -8,6 +8,7 @@ import { api } from "@convex/_generated/api"
 import type { Id } from "@convex/_generated/dataModel"
 import { StatusIcon } from "@/components/status-icon"
 import { MethodCards } from "@/components/method-cards"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { MethodBadge, ModelBadge } from "@/components/batch-badges"
 import {
@@ -29,6 +30,7 @@ import {
 } from "@/lib/clip-view"
 import { clipsToCsv, clipsToJson, downloadTextFile } from "@/lib/export-clips"
 import { formatDuration, formatF1, formatPercent } from "@/lib/format-time"
+import { useBatchUpload } from "@/hooks/use-batch-upload"
 import type { AnalysisMethod } from "@/application/select-classifier"
 import { cn } from "@/lib/utils"
 
@@ -60,6 +62,18 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
   const [method, setLocalMethod] = useState<AnalysisMethod | null>(null)
   const [pending, setPending] = useState(false)
   const [redoOpen, setRedoOpen] = useState(false)
+  const {
+    isUploading,
+    progress,
+    uploadError,
+    uploadOrphaned,
+    uploadWaitingRemote,
+    canRetryUpload,
+    canRetryStart,
+    retryUpload,
+    retryStart,
+    abandonUpload,
+  } = useBatchUpload(batchId, detail)
 
   const scores = useMemo(
     () => (detail ? scoresFromClips(detail.clips) : null),
@@ -90,7 +104,16 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
   const { batch, clips } = detail
   const selectedMethod = method ?? batch.method
   const isDraft = batch.status === "draft"
+  const isUploadingBatch =
+    batch.status === "uploading" && (isUploading || uploadWaitingRemote)
   const canRetry = batch.status === "complete" || batch.status === "failed"
+  const uploadLabel = progress
+    ? uploadWaitingRemote && !isUploading
+      ? `Waiting for upload ${progress.done}/${progress.total}`
+      : `Uploading ${progress.done}/${progress.total}`
+    : uploadWaitingRemote
+      ? "Waiting for upload to finish"
+      : "Uploading clips"
   const failedCount = batch.failedCount
 
   const handleDownload = (format: "csv" | "json") => {
@@ -214,7 +237,7 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
         </div>
       ) : null}
 
-      {isDraft ? (
+      {isDraft && !isUploadingBatch ? (
         <section className="space-y-4">
           <h2 className="text-sm font-medium">Method</h2>
           <MethodCards
@@ -235,26 +258,101 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
         </section>
       ) : null}
 
+      {uploadWaitingRemote && !uploadError ? (
+        <Alert>
+          <AlertTitle>Upload in progress</AlertTitle>
+          <AlertDescription>
+            Clips are being uploaded from another window or device. This page will
+            start processing automatically when uploads finish.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {uploadOrphaned ? (
+        <Alert variant="destructive">
+          <AlertTitle>Upload not available</AlertTitle>
+          <AlertDescription className="space-y-3">
+            <p>
+              This batch has no local files to upload. That usually means the page
+              was refreshed or the batch was created twice. Start a new batch, or
+              mark this one as failed.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                void abandonUpload()
+              }}
+            >
+              Mark as failed
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {uploadError ? (
+        <Alert variant="destructive">
+          <AlertTitle>{canRetryStart ? "Could not start batch" : "Upload failed"}</AlertTitle>
+          <AlertDescription className="space-y-3">
+            <p>{uploadError}</p>
+            {canRetryStart ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  retryStart()
+                }}
+              >
+                Retry start
+              </Button>
+            ) : null}
+            {canRetryUpload ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  retryUpload()
+                }}
+              >
+                Retry upload
+              </Button>
+            ) : null}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       <section className="rounded-xl border border-border bg-card">
         <details open className="border-b border-border px-5 py-4">
-          <summary className="cursor-pointer text-sm font-medium">Validate</summary>
+          <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+            {isUploadingBatch ? <StatusIcon status="uploading" /> : null}
+            Validate
+          </summary>
           <p className="mt-2 text-sm text-muted-foreground">
-            {batch.clipCount} audio files matched labels.csv
-            {labeledCount(clips) > 0
+            {isUploadingBatch
+              ? uploadLabel
+              : `${batch.clipCount} audio files matched labels.csv`}
+            {!isUploadingBatch && labeledCount(clips) > 0
               ? ` · ${labeledCount(clips)} gold labels stored for scoring, never sent to the model`
-              : " · unlabeled hidden-set shape"}
+              : !isUploadingBatch
+                ? " · unlabeled hidden-set shape"
+                : ""}
           </p>
         </details>
         <details open className="border-b border-border px-5 py-4">
           <summary className="cursor-pointer text-sm font-medium">Process clips</summary>
           <p className="mt-2 text-sm text-muted-foreground">
-            One clip at a time inside this batch. Other batches can run at the same time.
+            {isUploadingBatch
+              ? "Processing starts automatically once uploads finish."
+              : "One clip at a time inside this batch. Other batches can run at the same time."}
           </p>
         </details>
         <details open className="px-5 py-4">
           <summary className="cursor-pointer text-sm font-medium">Complete</summary>
           <p className="mt-2 text-sm text-muted-foreground">
-            Status: {batch.status}
+            Status: {isUploadingBatch ? "uploading" : batch.status}
             {batch.failedCount > 0 ? ` · ${batch.failedCount} isolated failures` : ""}
           </p>
         </details>
@@ -297,13 +395,18 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
                 key={clip._id}
                 className={cn(
                   "border-b border-border last:border-b-0",
-                  clip.state === "running" && "bg-muted/30",
+                  (clip.state === "running" || clip.state === "uploading") &&
+                    "bg-muted/30",
                 )}
               >
                 <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-3">
                   <StatusIcon
                     status={
-                      clip.state === "succeeded" ? "succeeded" : clip.state
+                      clip.state === "succeeded"
+                        ? "succeeded"
+                        : clip.state === "uploading"
+                          ? "uploading"
+                          : clip.state
                     }
                   />
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">

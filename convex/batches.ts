@@ -8,6 +8,7 @@ import { MAX_RUNNING_BATCHES, decideBatchLaunch } from "./lib/constants"
 
 export const generateUploadUrl = mutation({
   args: {},
+  returns: v.string(),
   handler: async (ctx) => {
     await requireUserId(ctx)
     return await ctx.storage.generateUploadUrl()
@@ -38,19 +39,21 @@ export const createDraft = mutation({
     clips: v.array(
       v.object({
         name: v.string(),
-        storageId: v.id("_storage"),
+        storageId: v.optional(v.id("_storage")),
         goldJson: v.optional(v.string()),
       }),
     ),
   },
+  returns: v.id("batches"),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
     const createdAt = Date.now()
     const model = args.method === "fusion" ? "gemini-3.6-flash" : "acoustic-baseline"
+    const awaitingUpload = args.clips.some((clip) => !clip.storageId)
     const batchId = await ctx.db.insert("batches", {
       userId,
       name: args.name,
-      status: "draft",
+      status: awaitingUpload ? "uploading" : "draft",
       method: args.method,
       model,
       parseIssues: args.parseIssues,
@@ -64,7 +67,7 @@ export const createDraft = mutation({
         batchId,
         name: clip.name,
         storageId: clip.storageId,
-        state: "queued",
+        state: clip.storageId ? "queued" : "uploading",
         goldJson: clip.goldJson,
       })
     }
@@ -72,10 +75,73 @@ export const createDraft = mutation({
       userId,
       batchId,
       level: "info",
-      message: `Draft created with ${args.clips.length} clip${args.clips.length === 1 ? "" : "s"}`,
+      message: awaitingUpload
+        ? `Uploading ${args.clips.length} clip${args.clips.length === 1 ? "" : "s"}`
+        : `Draft created with ${args.clips.length} clip${args.clips.length === 1 ? "" : "s"}`,
       createdAt,
     })
     return batchId
+  },
+})
+
+export const attachClipStorage = mutation({
+  args: {
+    clipId: v.id("clips"),
+    storageId: v.id("_storage"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx)
+    const clip = await ctx.db.get(args.clipId)
+    if (!clip) {
+      throw new Error("Clip not found")
+    }
+    const batch = await ctx.db.get(clip.batchId)
+    if (!batch || batch.userId !== userId) {
+      throw new Error("Batch not found")
+    }
+    if (batch.status !== "uploading") {
+      throw new Error("Batch is not awaiting upload")
+    }
+    if (clip.storageId && clip.state === "queued") {
+      return null
+    }
+    await ctx.db.patch(args.clipId, {
+      storageId: args.storageId,
+      state: "queued",
+    })
+    return null
+  },
+})
+
+export const failUpload = mutation({
+  args: {
+    batchId: v.id("batches"),
+    message: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx)
+    const batch = await ctx.db.get(args.batchId)
+    if (!batch || batch.userId !== userId) {
+      throw new Error("Batch not found")
+    }
+    if (batch.status !== "uploading") {
+      return null
+    }
+    const now = Date.now()
+    await ctx.db.patch(args.batchId, {
+      status: "failed",
+      completedAt: now,
+    })
+    await ctx.db.insert("logs", {
+      userId,
+      batchId: args.batchId,
+      level: "error",
+      message: args.message,
+      createdAt: now,
+    })
+    return null
   },
 })
 
@@ -84,6 +150,7 @@ export const list = query({
     status: v.optional(
       v.union(
         v.literal("draft"),
+        v.literal("uploading"),
         v.literal("queued"),
         v.literal("running"),
         v.literal("complete"),
@@ -130,7 +197,12 @@ export const listMineActive = query({
       .withIndex("by_user_and_created", (q) => q.eq("userId", userId))
       .order("desc")
       .take(50)
-    return rows.filter((row) => row.status === "running" || row.status === "queued")
+    return rows.filter(
+      (row) =>
+        row.status === "running" ||
+        row.status === "queued" ||
+        row.status === "uploading",
+    )
   },
 })
 
@@ -171,6 +243,15 @@ export const start = mutation({
     }
     if (batch.status === "running") {
       return { started: false as const, reason: "already_running" as const }
+    }
+    if (batch.status === "uploading") {
+      const clips = await ctx.db
+        .query("clips")
+        .withIndex("by_batch", (q) => q.eq("batchId", args.batchId))
+        .collect()
+      if (clips.some((clip) => !clip.storageId || clip.state === "uploading")) {
+        throw new Error("Clips are still uploading")
+      }
     }
 
     const method = args.method ?? batch.method

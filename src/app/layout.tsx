@@ -19,7 +19,11 @@ export const metadata: Metadata = {
   description: "Operator dashboard for emotional tone and background noise on production calls.",
 }
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode
+}>) {
   return (
     <ConvexAuthNextjsServerProvider>
       <html

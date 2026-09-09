@@ -2,18 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useConvexAuth, useMutation, useQuery } from "convex/react"
+import { LoaderCircleIcon, XIcon } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@convex/_generated/api"
-import type { Id } from "@convex/_generated/dataModel"
 import { collectDroppedFiles, resetFileInput } from "@/lib/collect-dropped-files"
+import { stashPendingUpload } from "@/lib/batch-upload-queue"
 import {
   clipsToUploads,
   defaultBatchName,
   parseDroppedFiles,
-  preparedClipsFromUploads,
-  uploadClipsInParallel,
-  uploadsBusy,
-  uploadsReady,
+  parsedInputFromUploads,
   type ClipUpload,
 } from "@/lib/prepare-batch"
 import { MethodCards } from "@/components/method-cards"
@@ -38,11 +36,7 @@ export const NewBatchPanel = ({
 }: NewBatchPanelProps) => {
   const { isAuthenticated } = useConvexAuth()
   const settings = useQuery(api.settings.get, isAuthenticated ? {} : "skip")
-  const generateUploadUrl = useMutation(api.batches.generateUploadUrl)
-  const deleteStorageIds = useMutation(api.batches.deleteStorageIds)
   const createDraft = useMutation(api.batches.createDraft)
-  const start = useMutation(api.batches.start)
-
   const [dragging, setDragging] = useState(false)
   const [parseIssues, setParseIssues] = useState<string[]>([])
   const [uploads, setUploads] = useState<ClipUpload[]>([])
@@ -50,57 +44,15 @@ export const NewBatchPanel = ({
   const [error, setError] = useState<string | null>(null)
   const [parsing, setParsing] = useState(false)
   const [starting, setStarting] = useState(false)
-  const uploadsRef = useRef(uploads)
   const initialHandled = useRef(false)
   const generationRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
-  const trackedIdsRef = useRef(new Set<string>())
   const transferredRef = useRef(false)
   const disposedRef = useRef(false)
   const startingRef = useRef(false)
+  const runInFlightRef = useRef(false)
 
   const selectedMethod: AnalysisMethod = method ?? settings?.defaultMethod ?? "fusion"
-
-  useEffect(() => {
-    uploadsRef.current = uploads
-  }, [uploads])
-
-  const discardStorageIds = useCallback(
-    async (ids: string[]) => {
-      if (ids.length === 0) {
-        return
-      }
-      try {
-        await deleteStorageIds({ storageIds: ids as Id<"_storage">[] })
-      } catch {
-        // Best-effort cleanup for abandoned blobs.
-      }
-    },
-    [deleteStorageIds],
-  )
-
-  const trackStorageId = useCallback(
-    (storageId: string, generation: number) => {
-      if (
-        disposedRef.current ||
-        transferredRef.current ||
-        generation !== generationRef.current
-      ) {
-        void discardStorageIds([storageId])
-        return
-      }
-      trackedIdsRef.current.add(storageId)
-    },
-    [discardStorageIds],
-  )
-
-  const discardTracked = useCallback(async () => {
-    const ids = [...trackedIdsRef.current]
-    trackedIdsRef.current.clear()
-    uploadsRef.current = []
-    setUploads([])
-    await discardStorageIds(ids)
-  }, [discardStorageIds])
 
   const beginGeneration = useCallback(() => {
     abortRef.current?.abort()
@@ -126,14 +78,14 @@ export const NewBatchPanel = ({
   )
 
   const handleDiscard = useCallback(async () => {
-    // Run owns the blobs until the draft is created or the mutation fails.
     if (startingRef.current || transferredRef.current) {
       return
     }
     beginGeneration()
-    await discardTracked()
+    setUploads([])
+    setParseIssues([])
     onDiscard?.()
-  }, [beginGeneration, discardTracked, onDiscard])
+  }, [beginGeneration, onDiscard])
 
   useEffect(() => {
     if (discardRef) {
@@ -152,25 +104,10 @@ export const NewBatchPanel = ({
     }
   }, [onBusyChange])
 
-  const discardStorageIdsRef = useRef(discardStorageIds)
   useEffect(() => {
-    discardStorageIdsRef.current = discardStorageIds
-  }, [discardStorageIds])
-
-  useEffect(() => {
-    const trackedIds = trackedIdsRef.current
     return () => {
       disposedRef.current = true
       abortRef.current?.abort()
-      if (transferredRef.current || startingRef.current) {
-        return
-      }
-      const ids = [...trackedIds]
-      trackedIds.clear()
-      if (ids.length === 0) {
-        return
-      }
-      void discardStorageIdsRef.current(ids)
     }
   }, [])
 
@@ -178,15 +115,12 @@ export const NewBatchPanel = ({
     if (startingRef.current || transferredRef.current) {
       return
     }
-    const previousIds = [...trackedIdsRef.current]
     const { generation, signal } = beginGeneration()
-    trackedIdsRef.current.clear()
     setError(null)
     setParsing(true)
-    void discardStorageIds(previousIds)
     try {
       const next = await parseDroppedFiles(files)
-      if (!isCurrent(generation)) {
+      if (!isCurrent(generation) || signal.aborted) {
         return
       }
       setParseIssues(next.parseIssues)
@@ -195,29 +129,7 @@ export const NewBatchPanel = ({
         setError(next.parseIssues[0] ?? "No valid clips to process")
         return
       }
-      const pending = clipsToUploads(next)
-      setUploads(pending)
-      const uploaded = await uploadClipsInParallel(
-        () => generateUploadUrl({}),
-        pending,
-        {
-          signal,
-          onStorageId: (storageId) => trackStorageId(storageId, generation),
-          onUpdate: (current) => {
-            if (isCurrent(generation)) {
-              setUploads(current)
-            }
-          },
-        },
-      )
-      if (!isCurrent(generation) || signal.aborted) {
-        return
-      }
-      setUploads(uploaded)
-      if (!uploadsReady(uploaded)) {
-        const firstError = uploaded.find((clip) => clip.status === "error")
-        setError(firstError?.error ?? "Some clips failed to upload")
-      }
+      setUploads(clipsToUploads(next))
     } catch (caught) {
       if (!isCurrent(generation)) {
         return
@@ -255,85 +167,46 @@ export const NewBatchPanel = ({
     }
   }
 
-  const handleRetryFailed = async () => {
-    if (startingRef.current || transferredRef.current || uploadsBusy(uploads)) {
-      return
-    }
-    const failed = uploads.filter((clip) => clip.status === "error")
-    if (failed.length === 0) {
-      return
-    }
-    const generation = generationRef.current
-    const signal = abortRef.current?.signal
-    setError(null)
-    const retrying = uploads.map((clip) =>
-      clip.status === "error"
-        ? { ...clip, status: "pending" as const, error: undefined }
-        : clip,
-    )
-    setUploads(retrying)
-    const uploaded = await uploadClipsInParallel(
-      () => generateUploadUrl({}),
-      retrying,
-      {
-        signal,
-        onStorageId: (storageId) => trackStorageId(storageId, generation),
-        onUpdate: (current) => {
-          if (isCurrent(generation)) {
-            setUploads(current)
-          }
-        },
-      },
-    )
-    if (!isCurrent(generation) || signal?.aborted) {
-      return
-    }
-    setUploads(uploaded)
-    if (!uploadsReady(uploaded)) {
-      const firstError = uploaded.find((clip) => clip.status === "error")
-      setError(firstError?.error ?? "Some clips failed to upload")
-    }
+  const removeClip = (name: string) => {
+    setUploads((current) => {
+      const next = current.filter((clip) => clip.name !== name)
+      if (next.length === 0) {
+        setError("Add at least one clip before running")
+      }
+      return next
+    })
   }
 
   const handleRun = async () => {
-    if (!uploadsReady(uploads) || starting || transferredRef.current) {
-      setError("Wait until every clip has finished uploading")
+    if (uploads.length === 0 || starting || transferredRef.current) {
+      setError("Parse a ZIP or folder with labels.csv before running")
       return
     }
+    if (runInFlightRef.current) {
+      return
+    }
+    runInFlightRef.current = true
     setRunBusy(true)
     setError(null)
     try {
-      const clips = preparedClipsFromUploads(uploads)
       const batchId = await createDraft({
-        name: defaultBatchName(clips.length),
+        name: defaultBatchName(uploads.length),
         method: selectedMethod,
         parseIssues,
-        clips: clips.map((clip) => ({
+        clips: uploads.map((clip) => ({
           name: clip.name,
-          storageId: clip.storageId as Id<"_storage">,
           goldJson: clip.goldJson,
         })),
       })
-      // Draft now owns the blobs. Do not delete them on close or unmount.
       transferredRef.current = true
-      trackedIdsRef.current.clear()
       abortRef.current?.abort()
-      try {
-        const result = await start({ batchId, method: selectedMethod })
-        if (result.reason === "queued") {
-          toast.message("Batch queued until another run finishes")
-        }
-      } catch (caught) {
-        const message =
-          caught instanceof Error ? caught.message : "Could not start the batch"
-        toast.error(`${message}. Open the draft to retry Run.`)
-      }
+      stashPendingUpload(batchId, parsedInputFromUploads(uploads, parseIssues))
       onStarted?.(batchId)
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Could not start the batch"
       setError(message)
       toast.error(message)
-    } finally {
+      runInFlightRef.current = false
       setRunBusy(false)
     }
   }
@@ -342,27 +215,13 @@ export const NewBatchPanel = ({
     if (uploads.length === 0) {
       return null
     }
-    const labeled = uploads.filter((clip) => Boolean(clip.goldJson)).length
-    const ready = uploads.filter((clip) => clip.status === "ready").length
-    const failed = uploads.filter((clip) => clip.status === "error").length
-    return { clipCount: uploads.length, labeled, ready, failed }
+    return {
+      clipCount: uploads.length,
+      labeled: uploads.filter((clip) => Boolean(clip.goldJson)).length,
+    }
   }, [uploads])
 
-  const uploading = uploadsBusy(uploads)
-  const canRun = uploadsReady(uploads) && !parsing && !starting && !uploading
-
-  const uploadLabel = (() => {
-    if (parsing) {
-      return "Parsing…"
-    }
-    if (starting) {
-      return "Starting…"
-    }
-    if (uploading && summary) {
-      return `Uploading ${summary.ready}/${summary.clipCount}`
-    }
-    return null
-  })()
+  const canRun = uploads.length > 0 && !parsing && !starting
 
   return (
     <div className="space-y-8">
@@ -385,7 +244,7 @@ export const NewBatchPanel = ({
         <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">
           Include audio files and <code>labels.csv</code>. The CSV must have a{" "}
           <code>name</code> column. Leave <code>result_json</code> empty on the hidden
-          set. Files upload as soon as they parse. Processing starts when you press Run.
+          set. Processing does not start until you press Run.
         </p>
         <label className="mt-8 inline-flex">
           <input
@@ -401,38 +260,53 @@ export const NewBatchPanel = ({
             Choose files
           </span>
         </label>
+        {parsing ? (
+          <p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+            <LoaderCircleIcon className="size-4 animate-spin" aria-hidden />
+            Parsing files…
+          </p>
+        ) : null}
       </div>
 
       {summary ? (
         <div className="rounded-xl border border-border bg-card p-6">
-          <p className="text-sm font-medium">Parsed summary</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {summary.clipCount} clip{summary.clipCount === 1 ? "" : "s"}
-            {summary.labeled > 0 ? ` · ${summary.labeled} labeled` : " · unlabeled"}
-            {uploading
-              ? ` · uploading ${summary.ready}/${summary.clipCount}`
-              : summary.failed > 0
-                ? ` · ${summary.failed} failed`
-                : " · uploaded"}
-          </p>
-          {parseIssues.length ? (
-            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+          <div className="flex items-baseline justify-between gap-4">
+            <p className="text-sm font-medium">Ready for upload</p>
+            <p className="text-sm text-muted-foreground">
+              {summary.clipCount} clip{summary.clipCount === 1 ? "" : "s"}
+              {summary.labeled > 0 ? ` · ${summary.labeled} labeled` : " · unlabeled"}
+            </p>
+          </div>
+          <ul className="mt-4 divide-y divide-border rounded-lg border border-border">
+            {uploads.map((clip) => (
+              <li
+                key={clip.name}
+                className="flex items-center gap-3 px-4 py-2.5 text-sm"
+              >
+                <span className="min-w-0 flex-1 truncate font-medium">{clip.name}</span>
+                {clip.goldJson ? (
+                  <span className="shrink-0 text-xs text-muted-foreground">labeled</span>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                  aria-label={`Remove ${clip.name}`}
+                  disabled={starting}
+                  onClick={() => removeClip(clip.name)}
+                >
+                  <XIcon className="size-4" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+          {parseIssues.length > 0 ? (
+            <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
               {parseIssues.map((issue) => (
                 <li key={issue}>{issue}</li>
               ))}
             </ul>
-          ) : null}
-          {summary.failed > 0 ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="mt-4"
-              onClick={() => {
-                void handleRetryFailed()
-              }}
-            >
-              Retry failed uploads
-            </Button>
           ) : null}
         </div>
       ) : null}
@@ -442,7 +316,7 @@ export const NewBatchPanel = ({
           <h2 className="text-sm font-medium">Method</h2>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             Fusion is the production path. Baseline is the DSP control. You can pick either
-            before uploading files.
+            before running.
           </p>
         </div>
         <MethodCards value={selectedMethod} onChange={setMethod} />
@@ -465,7 +339,7 @@ export const NewBatchPanel = ({
             void handleRun()
           }}
         >
-          {uploadLabel ?? "Run"}
+          Run
         </Button>
         {onDiscard ? (
           <Button

@@ -7,7 +7,7 @@ import { scoresForPairs, type FieldScores, type LabeledPair } from "@/applicatio
 
 export type ClipDoc = {
   name: string
-  state: "queued" | "running" | "succeeded" | "failed"
+  state: "uploading" | "queued" | "running" | "succeeded" | "failed"
   goldJson?: string
   predictionJson?: string
   errorJson?: string

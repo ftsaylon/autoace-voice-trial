@@ -137,8 +137,8 @@ export const BatchesPageClient = () => {
           <DialogHeader className="space-y-2 border-b px-6 py-5 pr-14">
             <DialogTitle className="text-lg">New batch</DialogTitle>
             <DialogDescription className="leading-relaxed">
-              Parse and upload first, pick a method anytime, then Run. Classification starts
-              only when you press Run.
+              Parse your files, pick a method, then Run. Upload and processing continue on
+              the batch page.
             </DialogDescription>
           </DialogHeader>
           <div className="overflow-y-auto px-6 py-6">

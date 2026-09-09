@@ -6,6 +6,7 @@ export const methodValidator = v.union(v.literal("fusion"), v.literal("baseline"
 
 export const batchStatusValidator = v.union(
   v.literal("draft"),
+  v.literal("uploading"),
   v.literal("queued"),
   v.literal("running"),
   v.literal("complete"),
@@ -13,6 +14,7 @@ export const batchStatusValidator = v.union(
 )
 
 export const clipStateValidator = v.union(
+  v.literal("uploading"),
   v.literal("queued"),
   v.literal("running"),
   v.literal("succeeded"),
@@ -47,7 +49,7 @@ export default defineSchema({
   clips: defineTable({
     batchId: v.id("batches"),
     name: v.string(),
-    storageId: v.id("_storage"),
+    storageId: v.optional(v.id("_storage")),
     state: clipStateValidator,
     stage: v.optional(v.string()),
     goldJson: v.optional(v.string()),

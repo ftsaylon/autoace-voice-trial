@@ -19,12 +19,13 @@ export const claimNext = internalMutation({
       .collect()
     const next = clips.find(
       (clip) =>
-        clip.state === "queued" ||
-        (clip.state === "running" &&
-          clip.claimedAt !== undefined &&
-          clip.claimedAt < staleBefore),
+        clip.storageId &&
+        (clip.state === "queued" ||
+          (clip.state === "running" &&
+            clip.claimedAt !== undefined &&
+            clip.claimedAt < staleBefore)),
     )
-    if (!next) {
+    if (!next || !next.storageId) {
       return null
     }
     await ctx.db.patch(next._id, {
@@ -136,7 +137,7 @@ export const finishBatchIfIdle = internalMutation({
   args: { batchId: v.id("batches") },
   handler: async (ctx, args) => {
     const batch = await ctx.db.get(args.batchId)
-    if (!batch) {
+    if (!batch || batch.status === "uploading") {
       return { finished: false }
     }
     const clips = await ctx.db
@@ -144,7 +145,10 @@ export const finishBatchIfIdle = internalMutation({
       .withIndex("by_batch", (q) => q.eq("batchId", args.batchId))
       .collect()
     const pending = clips.some(
-      (clip) => clip.state === "queued" || clip.state === "running",
+      (clip) =>
+        clip.state === "uploading" ||
+        clip.state === "queued" ||
+        clip.state === "running",
     )
     if (pending) {
       return { finished: false }
