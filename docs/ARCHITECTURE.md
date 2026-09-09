@@ -60,10 +60,11 @@ sequenceDiagram
   participant Worker
   participant Gemini
 
-  User->>UI: Drop ZIP or folder
+  User->>UI: Drop ZIP or folder on Batches (or New batch modal)
   UI->>UI: Parse labels.csv client-side
-  User->>UI: Pick method and Run
-  UI->>Convex: Upload clips, createDraft, start
+  UI->>Convex: Upload clips in parallel
+  User->>UI: Pick method anytime, then Run
+  UI->>Convex: createDraft, start
   Convex->>Worker: scheduler.runAfter processNext
   loop Each queued clip
     Worker->>Worker: ffmpeg decode, windows
@@ -74,12 +75,14 @@ sequenceDiagram
   Convex-->>UI: useQuery updates list, detail, logs
 ```
 
-1. Upload parses locally. Empty `result_json` is unlabeled, not fatal. Missing `labels.csv` is fatal.
-2. Run creates a draft then starts it. Drafts are not processed.
-3. At most two batches run at once. Further starts are `queued`.
-4. Clips inside a batch are serialized (Gemini RPM). Separate batches have their own scheduler chains.
-5. `onStage` writes decode / acoustics / window i/n / fuse into `clips.stage` and `logs`. A log failure cannot fail the clip.
-6. The UI never polls a process endpoint. `useQuery` on batch, clips, and logs is the live stream.
+1. Drop or choose files. Empty `result_json` is unlabeled, not fatal. Missing `labels.csv` is fatal.
+2. Parsed clips upload to Convex storage immediately (parallel, bounded concurrency). Run stays disabled until every clip is stored.
+3. Method (Fusion / Baseline) can be chosen with or without files.
+4. Run creates a draft then starts it. Drafts are not processed.
+5. At most two batches run at once. Further starts are `queued`.
+6. Clips inside a batch are serialized (Gemini RPM). Separate batches have their own scheduler chains.
+7. `onStage` writes decode / acoustics / window i/n / fuse into `clips.stage` and `logs`. A log failure cannot fail the clip.
+8. The UI never polls a process endpoint. `useQuery` on batch, clips, and logs is the live stream.
 
 ## Failures
 

@@ -27,7 +27,11 @@ const FILTER_OPTIONS: readonly StatusFilterOption<BatchFilter>[] = [
   { value: "draft", label: "Draft", tone: "draft" },
 ]
 
-export const BatchList = () => {
+export const BatchList = ({
+  onCreateBatch,
+}: {
+  onCreateBatch?: () => void
+}) => {
   const { isAuthenticated } = useConvexAuth()
   const batches = useQuery(api.batches.list, isAuthenticated ? {} : "skip")
   const convex = useConvex()
@@ -97,9 +101,15 @@ export const BatchList = () => {
             The CSV needs a <code>name</code> column. <code>result_json</code> can be
             empty on the hidden set.
           </p>
-          <Button asChild size="lg" className="mt-6">
-            <Link href="/batches/new">New batch</Link>
-          </Button>
+          {onCreateBatch ? (
+            <Button type="button" size="lg" className="mt-6" onClick={onCreateBatch}>
+              New batch
+            </Button>
+          ) : (
+            <Button asChild size="lg" className="mt-6">
+              <Link href="/batches">New batch</Link>
+            </Button>
+          )}
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-border bg-card">

@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "AutoAce tone and noise",
+  title: "AutoAce",
   description: "Operator dashboard for emotional tone and background noise on production calls.",
 }
 

@@ -50,7 +50,7 @@ evaluation_batch/
 
 Supported audio: wav, mp3, ogg, m4a, flac.
 
-Create a batch from **New batch**, pick **Fusion** (production) or **Acoustic baseline** (control), then press **Run**. Processing does not start on upload.
+Create a batch from **New batch** on the Batches page (or drop a ZIP/folder onto that page), pick **Fusion** (production) or **Acoustic baseline** (control), then press **Run**. Files upload as soon as they parse. Classification does not start until you press Run.
 
 ### Methods
 

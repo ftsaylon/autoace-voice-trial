@@ -14,6 +14,22 @@ export const generateUploadUrl = mutation({
   },
 })
 
+export const deleteStorageIds = mutation({
+  args: {
+    storageIds: v.array(v.id("_storage")),
+  },
+  handler: async (ctx, args) => {
+    await requireUserId(ctx)
+    for (const storageId of args.storageIds) {
+      try {
+        await ctx.storage.delete(storageId)
+      } catch {
+        // Already deleted or never written; cleanup must be idempotent.
+      }
+    }
+  },
+})
+
 export const createDraft = mutation({
   args: {
     name: v.string(),
