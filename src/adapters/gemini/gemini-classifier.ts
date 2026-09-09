@@ -10,7 +10,15 @@ import {
 import { err, ok, type Result } from "@/domain/result";
 import type { AnalyzeError } from "@/domain/errors";
 
-export const GEMINI_MODEL = "gemini-2.5-flash" as const;
+export const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
+
+export const resolveGeminiModel = (): string => {
+  const override = process.env.GEMINI_MODEL?.trim();
+  if (!override) {
+    return DEFAULT_GEMINI_MODEL;
+  }
+  return override.replace(/^models\//, "");
+};
 
 export const CLASSIFIER_PROMPT = `You analyze production call-center audio between a customer and an agent.
 
@@ -104,8 +112,15 @@ export class GeminiClassifier implements SemanticClassifier {
     }
     try {
       const result = await generateText({
-        model: google(GEMINI_MODEL),
+        model: google(resolveGeminiModel()),
         output: Output.object({ schema: semanticClassifierSchema }),
+        providerOptions: {
+          google: {
+            thinkingConfig: {
+              thinkingLevel: "minimal",
+            },
+          },
+        },
         messages: [
           {
             role: "user",

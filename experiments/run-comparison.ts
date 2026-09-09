@@ -3,7 +3,11 @@ import { processBatchToCompletion } from "@/application/process-clip";
 import { MemoryAudioStore, MemoryBatchRepository } from "@/adapters/storage/memory";
 import { FfmpegAcousticAnalyzer } from "@/adapters/acoustic/ffmpeg-analyzer";
 import { AcousticBaselineClassifier } from "@/adapters/baseline/acoustic-baseline";
-import { GeminiClassifier, classifierIsConfigured } from "@/adapters/gemini/gemini-classifier";
+import {
+  GeminiClassifier,
+  classifierIsConfigured,
+  resolveGeminiModel,
+} from "@/adapters/gemini/gemini-classifier";
 import { autoAceJsonString, EMOTIONAL_TONES, type ClipPrediction } from "@/domain";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -107,9 +111,9 @@ async function main() {
 
   const report = {
     classifierConfigured: classifierIsConfigured(),
-    geminiModel: "gemini-2.5-flash",
+    geminiModel: resolveGeminiModel(),
     audioTokenEstimatePerMinute: 1920,
-    estimatedUsdPerMinute: 0.0003,
+    estimatedUsdPerMinute: 0.0029,
     costCeilingUsdPerMinute: 0.003,
     baselineElapsedMs: baselineRun.elapsedMs,
     geminiElapsedMs: geminiRun?.elapsedMs ?? null,

@@ -2,7 +2,7 @@
 
 Hosted dashboard for classifying customer emotional tone and background noise in production call audio. AutoAce can log in, upload an evaluation ZIP, watch clip-by-clip progress, and download the required JSON schema.
 
-Production inference uses Gemini 2.5 Flash with constrained decoding. An acoustic engine owns silence and technical quality. Gold `result_json` is used only for scoring. It never enters the model.
+Production inference uses Gemini 3.6 Flash with constrained decoding. An acoustic engine owns silence and technical quality. Gold `result_json` is used only for scoring. It never enters the model.
 
 ## Run locally
 
@@ -72,4 +72,4 @@ Set `GOOGLE_GENERATIVE_AI_API_KEY` on the host before scoring hidden audio. With
 
 Vercel serverless uses `/tmp` for SQLite and audio. ffmpeg-static's install script is skipped on some Vercel builds, so decode can fail there. For the evaluation period, run `npm run start` (or `npm run dev`) on a Node host with disk if you need local acoustics plus Gemini.
 
-Environment variables: `AUTOACE_USER`, `AUTOACE_PASSWORD`, `SESSION_SECRET` (32+ characters), `GOOGLE_GENERATIVE_AI_API_KEY`, optional `DATABASE_URL` and `AUDIO_ROOT`. `maxDuration` on analysis routes is 300 seconds.
+Environment variables: `AUTOACE_USER`, `AUTOACE_PASSWORD`, `SESSION_SECRET` (32+ characters), `GOOGLE_GENERATIVE_AI_API_KEY`, optional `GEMINI_MODEL` (default `gemini-3.6-flash`), `DATABASE_URL`, and `AUDIO_ROOT`. `maxDuration` on analysis routes is 300 seconds.

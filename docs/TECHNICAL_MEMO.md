@@ -6,7 +6,7 @@ AutoAce asked for the most accurate, cheap, and reproducible classifier of custo
 
 **Acoustic baseline.** ffmpeg decode to 16 kHz mono PCM, then energy VAD, SNR, clipping, RMS, and spectral flatness. A small rule table maps those measurements onto the AutoAce schema. Cost is $0. The taxonomy does not match acted-emotion SER labels, and dual-mono files have no channel cue for overlap, so this path is a control, not the production model.
 
-**Gemini 2.5 Flash audio.** Constrained decoding (`generateText` + `Output.object`) against a Zod schema derived from `ClipPrediction`. The prompt quotes AutoAce's field definitions and the two anti-confound rules (tone is not loudness, noise is not quality). Clips longer than 30 s are split into 20 s windows with 5 s overlap, classified, then reduced by `aggregateWindows`.
+**Gemini 3.6 Flash audio.** Constrained decoding (`generateText` + `Output.object`) against a Zod schema derived from `ClipPrediction`. The prompt quotes AutoAce's field definitions and the two anti-confound rules (tone is not loudness, noise is not quality). Clips longer than 30 s are split into 20 s windows with 5 s overlap, classified, then reduced by `aggregateWindows`. Gemini 2.5 Flash is retired for new API keys, so production pins `gemini-3.6-flash` (overridable with `GEMINI_MODEL`) and sets `thinkingLevel: minimal` so thinking tokens do not eat the $0.003 / min ceiling.
 
 Both approaches share `CreateBatch`, `ProcessClip`, fusion, and storage. The only swap is the `SemanticClassifier` port.
 
@@ -22,7 +22,7 @@ The acoustic engine is source of truth for `long_silence_present` and `audio_qua
 
 ## Cost
 
-Gemini 2.5 Flash bills audio at 32 tokens per second, or 1920 tokens per minute. At published Flash input prices around $0.15 / 1M tokens, that is about **$0.0003 per audio minute**, plus a few hundred output tokens. The ceiling is $0.003 / min. Windowing a long call sends each 20 s slice once, so a three-minute call is still about three minutes of audio tokens, not a full-file multiply.
+Gemini bills audio at about 32 tokens per second, or 1920 tokens per minute. Gemini 3.6 Flash input is $1.50 / 1M tokens, so audio alone is about **$0.0029 per audio minute**, plus a small structured-output completion. That stays under the $0.003 / min ceiling if thinking stays at `minimal`. Windowing a long call sends each 20 s slice once, so a three-minute call is still about three minutes of audio tokens, not a full-file multiply.
 
 Audio leaves AutoAce infrastructure and is sent to Google. Retention follows Google's Gemini API policy. Disclose that on evaluation.
 
