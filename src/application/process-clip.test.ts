@@ -181,4 +181,84 @@ describe("ProcessClip", () => {
     const stored = await repo.get(batch.id);
     expect(stored?.clips[0]?.state).toBe("succeeded");
   });
+
+  it("keeps classifier quality and silence when fusion is skipped", async () => {
+    const repo = new MemoryBatchRepository();
+    const store = new MemoryAudioStore();
+    const batch = await createBatch({
+      repo,
+      store,
+      files: [
+        {
+          name: "labels.csv",
+          bytes: new TextEncoder().encode("name,result_json\ncall_ok.wav,\n"),
+        },
+        { name: "call_ok.wav", bytes: wavBytes() },
+      ],
+    });
+    const seen: Array<unknown> = [];
+    const geminiOnly: SemanticClassifier = {
+      async classify(input) {
+        seen.push(input.acoustic);
+        return ok({
+          ...fakeSemantic,
+          audio_quality: "severely_impaired",
+          long_silence_present: true,
+        });
+      },
+    };
+    await processBatchToCompletion({
+      repo,
+      store,
+      acoustic: fakeAcoustic,
+      classifier: geminiOnly,
+      fuseQualityAndSilence: false,
+      batchId: batch.id,
+    });
+    const stored = await repo.get(batch.id);
+    expect(stored?.clips[0]?.prediction?.audio_quality).toBe("severely_impaired");
+    expect(stored?.clips[0]?.prediction?.long_silence_present).toBe(true);
+    expect(seen).toEqual([undefined]);
+  });
+
+  it("passes full-clip acoustics to the classifier when fusion is on", async () => {
+    const repo = new MemoryBatchRepository();
+    const store = new MemoryAudioStore();
+    const batch = await createBatch({
+      repo,
+      store,
+      files: [
+        {
+          name: "labels.csv",
+          bytes: new TextEncoder().encode("name,result_json\ncall_ok.wav,\n"),
+        },
+        { name: "call_ok.wav", bytes: wavBytes() },
+      ],
+    });
+    const seen: Array<unknown> = [];
+    const classifier: SemanticClassifier = {
+      async classify(input) {
+        seen.push(input.acoustic);
+        return ok(fakeSemantic);
+      },
+    };
+    await processBatchToCompletion({
+      repo,
+      store,
+      acoustic: fakeAcoustic,
+      classifier,
+      batchId: batch.id,
+    });
+    expect(seen).toEqual([
+      {
+        durationSec: 12,
+        longestSilenceSec: 1,
+        snrDb: 24,
+        clipFraction: 0,
+        rms: 0.1,
+        spectralFlatness: 0.2,
+      },
+    ]);
+  });
 });
+

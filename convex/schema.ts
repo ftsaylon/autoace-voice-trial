@@ -2,7 +2,13 @@ import { defineSchema, defineTable } from "convex/server"
 import { v } from "convex/values"
 import { authTables } from "@convex-dev/auth/server"
 
-export const methodValidator = v.union(v.literal("fusion"), v.literal("baseline"))
+export const methodValidator = v.union(
+  v.literal("fusion"),
+  v.literal("baseline"),
+  v.literal("lexical"),
+  v.literal("prosody"),
+  v.literal("gemini_only"),
+)
 
 export const batchStatusValidator = v.union(
   v.literal("draft"),

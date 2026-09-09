@@ -25,7 +25,7 @@ export const formatProcessStage = (stage: ProcessStage): string => {
   if (stage.tag === "window") {
     return `Window ${stage.index}/${stage.total}`
   }
-  return "Fusing prediction"
+  return "Finalizing prediction"
 }
 
 export async function processClip(
@@ -34,6 +34,7 @@ export async function processClip(
     store: AudioStore
     acoustic: AcousticAnalyzer
     classifier: SemanticClassifier
+    fuseQualityAndSilence?: boolean
     onStage?: (stage: ProcessStage) => Promise<void>
   },
   clip: ClipRow,
@@ -74,6 +75,8 @@ export async function processClip(
     const classified = await deps.classifier.classify({
       audio: sliced.value,
       durationSec: bound.endSec - bound.startSec,
+      acoustic:
+        deps.fuseQualityAndSilence === false ? undefined : measured.value,
     })
     if (!classified.ok) {
       await deps.repo.complete(clip.id, classified)
@@ -88,7 +91,10 @@ export async function processClip(
 
   await report({ tag: "fuse" })
   const semantic = aggregateWindows(windows)
-  const fused = fuse(semantic, measured.value)
+  const fused =
+    deps.fuseQualityAndSilence === false
+      ? semantic
+      : fuse(semantic, measured.value)
   const result = ok(fused)
   await deps.repo.complete(clip.id, result)
   return result
@@ -99,6 +105,7 @@ export async function processNextClip(deps: {
   store: AudioStore
   acoustic: AcousticAnalyzer
   classifier: SemanticClassifier
+  fuseQualityAndSilence?: boolean
   batchId: string
   onStage?: (stage: ProcessStage) => Promise<void>
 }): Promise<"idle" | Result<ClipPrediction, AnalyzeError>> {
@@ -114,6 +121,7 @@ export async function processBatchToCompletion(deps: {
   store: AudioStore
   acoustic: AcousticAnalyzer
   classifier: SemanticClassifier
+  fuseQualityAndSilence?: boolean
   batchId: string
   onStage?: (stage: ProcessStage) => Promise<void>
 }): Promise<void> {

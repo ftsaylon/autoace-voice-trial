@@ -1,7 +1,7 @@
-import { v } from "convex/values"
 import { mutation, query } from "./_generated/server"
 import { requireUserId } from "./lib/auth"
 import { methodValidator } from "./schema"
+import { METHODS } from "../src/application/methods"
 
 export const get = query({
   args: {},
@@ -13,7 +13,7 @@ export const get = query({
       .unique()
     return {
       defaultMethod: existing?.defaultMethod ?? "fusion",
-      productionModel: "gemini-3.6-flash",
+      productionModel: METHODS.fusion.model,
       costCeilingUsdPerMinute: 0.003,
     }
   },

@@ -2,13 +2,22 @@ import { generateText, Output } from "ai";
 import { google } from "@ai-sdk/google";
 import type { SemanticClassifier } from "@/application/ports";
 import {
+  AUDIO_QUALITIES,
   noNoise,
   presentNoise,
   semanticClassifierSchema,
+  type AcousticMeasurements,
+  type AudioQuality,
   type ClipPrediction,
 } from "@/domain";
 import { err, ok, type Result } from "@/domain/result";
 import type { AnalyzeError } from "@/domain/errors";
+import { z } from "zod";
+import {
+  FUSION_PROMPT,
+  acousticForGeminiPrompt,
+  buildGeminiUserText,
+} from "./prompts";
 
 export const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
 
@@ -20,34 +29,17 @@ export const resolveGeminiModel = (): string => {
   return override.replace(/^models\//, "");
 };
 
-export const CLASSIFIER_PROMPT = `You analyze production call-center audio between a customer and an agent.
+export const CLASSIFIER_PROMPT = FUSION_PROMPT;
 
-Return structured fields for THIS clip only.
+const fullClassifierSchema = semanticClassifierSchema.extend({
+  audio_quality: z.enum(AUDIO_QUALITIES),
+  long_silence_present: z.boolean(),
+});
 
-emotional_tone: the primary emotion of the customer.
-- neutral: no clear positive or negative emotion
-- satisfied: pleased, relieved, appreciative, or clearly positive
-- frustrated: annoyed, impatient, or dissatisfied without strong anger or distress
-- upset: clearly angry, agitated, or strongly dissatisfied
-- distressed: highly emotional, overwhelmed, panicked, crying, or otherwise emotionally escalated
-
-emotional_intensity: low (subtle), medium (clear and sustained), high (strong, escalated).
-
-background_noise_present: true only if meaningful non-speech sound is audible. Barely perceptible artifacts do not count.
-
-background_noise_type: a short phrase for the dominant noise (office chatter, TV, road noise, sharp static, keyboard typing, music, wind, mechanical). Empty string when no noise is present.
-
-background_noise_severity: none when no noise. Otherwise low (audible but does not interfere), medium (occasionally interferes), high (materially impairs the conversation).
-
-speaker_overlap_present: true if two or more speakers talk at the same time enough to affect understanding.
-
-confidence: 0 to 1 for the overall result.
-
-Rules:
-- Do not infer frustration or distress solely from loudness.
-- Do not infer background noise solely from poor audio quality.
-- Judge the customer, not the agent.
-- If several emotions appear, pick the primary one.`;
+export type GeminiClassifierOptions = {
+  prompt: string;
+  ownQualityAndSilence?: boolean;
+};
 
 export function classifierIsConfigured(): boolean {
   return Boolean(
@@ -57,7 +49,7 @@ export function classifierIsConfigured(): boolean {
   );
 }
 
-function toPrediction(
+export function toPrediction(
   output: {
     emotional_tone: ClipPrediction["emotional_tone"];
     emotional_intensity: ClipPrediction["emotional_intensity"];
@@ -66,16 +58,20 @@ function toPrediction(
     background_noise_severity: "none" | "low" | "medium" | "high";
     speaker_overlap_present: boolean;
     confidence: number;
+    audio_quality?: AudioQuality;
+    long_silence_present?: boolean;
   },
 ): Result<ClipPrediction, AnalyzeError> {
+  const audio_quality = output.audio_quality ?? "clear";
+  const long_silence_present = output.long_silence_present ?? false;
   if (!output.background_noise_present) {
     return ok({
       emotional_tone: output.emotional_tone,
       emotional_intensity: output.emotional_intensity,
       background_noise: noNoise,
-      audio_quality: "clear",
+      audio_quality,
       speaker_overlap_present: output.speaker_overlap_present,
-      long_silence_present: false,
+      long_silence_present,
       confidence: output.confidence,
     });
   }
@@ -95,25 +91,33 @@ function toPrediction(
       output.background_noise_type,
       output.background_noise_severity,
     ),
-    audio_quality: "clear",
+    audio_quality,
     speaker_overlap_present: output.speaker_overlap_present,
-    long_silence_present: false,
+    long_silence_present,
     confidence: output.confidence,
   });
 }
 
 export class GeminiClassifier implements SemanticClassifier {
+  constructor(
+    private readonly options: GeminiClassifierOptions = { prompt: FUSION_PROMPT },
+  ) {}
+
   async classify(input: {
     audio: { name: string; bytes: Uint8Array; mediaType: string };
     durationSec: number;
+    acoustic?: AcousticMeasurements;
   }): Promise<Result<ClipPrediction, AnalyzeError>> {
     if (!classifierIsConfigured()) {
       return err({ tag: "classifier_unavailable" });
     }
+    const ownQuality = this.options.ownQualityAndSilence === true;
     try {
       const result = await generateText({
         model: google(resolveGeminiModel()),
-        output: Output.object({ schema: semanticClassifierSchema }),
+        output: Output.object({
+          schema: ownQuality ? fullClassifierSchema : semanticClassifierSchema,
+        }),
         providerOptions: {
           google: {
             thinkingConfig: {
@@ -127,7 +131,14 @@ export class GeminiClassifier implements SemanticClassifier {
             content: [
               {
                 type: "text",
-                text: `${CLASSIFIER_PROMPT}\n\nClip duration: ${input.durationSec.toFixed(2)} seconds. Filename: ${input.audio.name}.`,
+                text: buildGeminiUserText({
+                  prompt: this.options.prompt,
+                  durationSec: input.durationSec,
+                  acoustic: acousticForGeminiPrompt({
+                    ownQualityAndSilence: ownQuality,
+                    acoustic: input.acoustic,
+                  }),
+                }),
               },
               {
                 type: "file",

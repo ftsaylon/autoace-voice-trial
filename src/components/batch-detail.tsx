@@ -31,7 +31,7 @@ import {
 import { clipsToCsv, clipsToJson, downloadTextFile } from "@/lib/export-clips"
 import { formatDuration, formatF1, formatPercent } from "@/lib/format-time"
 import { useBatchUpload } from "@/hooks/use-batch-upload"
-import type { AnalysisMethod } from "@/application/select-classifier"
+import type { AnalysisMethod } from "@/application/methods"
 import { cn } from "@/lib/utils"
 
 const errorLabel = (errorJson?: string): string => {

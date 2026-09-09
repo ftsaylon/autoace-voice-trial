@@ -9,7 +9,7 @@ import { err, ok, type Result } from "@/domain/result";
 import type { AcousticMeasurements } from "@/domain";
 import type { AnalyzeError } from "@/domain/errors";
 
-const SAMPLE_RATE = 16000;
+export const SAMPLE_RATE = 16000;
 
 function runFfmpeg(args: string[], input?: Uint8Array): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
@@ -41,7 +41,7 @@ function runFfmpeg(args: string[], input?: Uint8Array): Promise<Uint8Array> {
   });
 }
 
-async function decodePcm(bytes: Uint8Array): Promise<Float32Array> {
+export async function decodePcm(bytes: Uint8Array): Promise<Float32Array> {
   const pcm = await runFfmpeg(
     ["-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-ac", "1", "-ar", String(SAMPLE_RATE), "-f", "s16le", "pipe:1"],
     bytes,

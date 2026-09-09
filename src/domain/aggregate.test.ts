@@ -72,4 +72,18 @@ describe("aggregateWindows", () => {
     );
     expect(prediction.speaker_overlap_present).toBe(true);
   });
+
+  it("keeps the most impaired window quality", () => {
+    const prediction = aggregateWindows([
+      window(0, "neutral", "low"),
+      {
+        ...window(15, "neutral", "low"),
+        audio_quality: "severely_impaired",
+        long_silence_present: true,
+      },
+    ]);
+    expect(prediction.audio_quality).toBe("severely_impaired");
+    expect(prediction.long_silence_present).toBe(true);
+  });
 });
+

@@ -5,6 +5,8 @@ import { internalAction } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { processClip, formatProcessStage } from "../src/application/process-clip"
 import { classifierForMethod } from "../src/application/select-classifier"
+import { resolveMethod } from "../src/application/methods"
+import { formatAnalyzeError } from "../src/domain/errors"
 import { FfmpegAcousticAnalyzer } from "../src/adapters/acoustic/ffmpeg-analyzer"
 import { autoAceJsonString } from "../src/domain"
 import { mediaTypeFor } from "../src/adapters/storage/memory"
@@ -47,8 +49,32 @@ export const processNext = internalAction({
     }
 
     const bytes = new Uint8Array(await blob.arrayBuffer())
+    const method = resolveMethod(claimed.method)
+    if (!method) {
+      const error = {
+        tag: "classifier_invalid_output" as const,
+        cause: `Unknown method ${claimed.method}`,
+      }
+      await ctx.runMutation(internal.process.completeClip, {
+        clipId: claimed.clipId,
+        ok: false,
+        errorJson: JSON.stringify(error),
+      })
+      await ctx.runMutation(internal.process.appendLog, {
+        userId: claimed.userId,
+        batchId: claimed.batchId,
+        clipId: claimed.clipId,
+        level: "error",
+        message: formatAnalyzeError(error),
+      })
+      await ctx.scheduler.runAfter(0, internal.processActions.processNext, {
+        batchId: args.batchId,
+      })
+      return
+    }
+
     const acoustic = new FfmpegAcousticAnalyzer()
-    const classifier = classifierForMethod(claimed.method, acoustic)
+    const classifier = classifierForMethod(method.id, acoustic)
 
     const store: AudioStore = {
       async put() {
@@ -96,6 +122,7 @@ export const processNext = internalAction({
           store,
           acoustic,
           classifier,
+          fuseQualityAndSilence: method.fuseQualityAndSilence,
           onStage: async (stage) => {
             await ctx.runMutation(internal.process.setStage, {
               clipId: claimed.clipId,

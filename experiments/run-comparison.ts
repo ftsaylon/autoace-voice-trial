@@ -2,50 +2,34 @@ import { createBatch } from "@/application/create-batch";
 import { processBatchToCompletion } from "@/application/process-clip";
 import { MemoryAudioStore, MemoryBatchRepository } from "@/adapters/storage/memory";
 import { FfmpegAcousticAnalyzer } from "@/adapters/acoustic/ffmpeg-analyzer";
-import { AcousticBaselineClassifier } from "@/adapters/baseline/acoustic-baseline";
+import { classifierForMethod } from "@/application/select-classifier";
 import {
-  GeminiClassifier,
-  classifierIsConfigured,
-  resolveGeminiModel,
-} from "@/adapters/gemini/gemini-classifier";
-import { autoAceJsonString, EMOTIONAL_TONES, type ClipPrediction } from "@/domain";
+  METHOD_IDS,
+  METHODS,
+  methodDefinition,
+  type MethodId,
+} from "@/application/methods";
+import { scoresForPairs, type LabeledPair } from "@/application/scores";
+import { classifierIsConfigured, resolveGeminiModel } from "@/adapters/gemini/gemini-classifier";
+import { autoAceJsonString, type ClipPrediction } from "@/domain";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-type RunRow = {
+type MethodRow = {
   name: string;
   gold: ClipPrediction | null;
-  gemini: ClipPrediction | null;
-  baseline: ClipPrediction | null;
-  geminiMs: number | null;
-  baselineMs: number | null;
-  durationSec: number | null;
-  geminiError: string | null;
-  baselineError: string | null;
+  prediction: ClipPrediction | null;
+  error: string | null;
 };
 
-function confusion(pairs: { gold: string; pred: string }[]) {
-  const labels = [...EMOTIONAL_TONES];
-  const matrix: Record<string, Record<string, number>> = {};
-  for (const gold of labels) {
-    matrix[gold] = {};
-    for (const pred of labels) {
-      matrix[gold]![pred] = 0;
-    }
-  }
-  for (const pair of pairs) {
-    if (!matrix[pair.gold] || matrix[pair.gold][pair.pred] === undefined) {
-      continue;
-    }
-    matrix[pair.gold]![pair.pred]! += 1;
-  }
-  return matrix;
-}
-
-async function runOne(
+async function runMethod(
   files: { name: string; bytes: Uint8Array }[],
-  classifier: "gemini" | "baseline",
+  method: MethodId,
 ) {
+  const definition = methodDefinition(method);
+  if (definition.needsGemini && !classifierIsConfigured()) {
+    return null;
+  }
   const repo = new MemoryBatchRepository();
   const store = new MemoryAudioStore();
   const acoustic = new FfmpegAcousticAnalyzer();
@@ -55,12 +39,22 @@ async function runOne(
     repo,
     store,
     acoustic,
-    classifier:
-      classifier === "gemini" ? new GeminiClassifier() : new AcousticBaselineClassifier(acoustic),
+    classifier: classifierForMethod(method, acoustic),
+    fuseQualityAndSilence: definition.fuseQualityAndSilence,
     batchId: batch.id,
   });
   const finished = await repo.get(batch.id);
   return { elapsedMs: Date.now() - started, batch: finished! };
+}
+
+function pairsFromRows(rows: MethodRow[]): LabeledPair[] {
+  const pairs: LabeledPair[] = [];
+  for (const row of rows) {
+    if (row.gold && row.prediction) {
+      pairs.push({ gold: row.gold, prediction: row.prediction });
+    }
+  }
+  return pairs;
 }
 
 async function main() {
@@ -76,55 +70,45 @@ async function main() {
       bytes: new Uint8Array(await readFile(path.join(dir, name))),
     })),
   );
-  const baselineRun = await runOne(files, "baseline");
-  const geminiRun = classifierIsConfigured()
-    ? await runOne(files, "gemini")
-    : null;
 
-  const rows: RunRow[] = baselineRun.batch.clips.map((clip) => {
-    const geminiClip = geminiRun?.batch.clips.find((row) => row.name === clip.name);
-    return {
+  const methods: Record<string, unknown> = {};
+  for (const id of METHOD_IDS) {
+    const run = await runMethod(files, id);
+    if (!run) {
+      methods[id] = {
+        skipped: true,
+        reason: "classifier_unavailable",
+        definition: METHODS[id],
+      };
+      continue;
+    }
+    const rows: MethodRow[] = run.batch.clips.map((clip) => ({
       name: clip.name,
       gold: clip.gold,
-      gemini: geminiClip?.prediction ?? null,
-      baseline: clip.prediction,
-      geminiMs: geminiRun ? geminiRun.elapsedMs : null,
-      baselineMs: baselineRun.elapsedMs,
-      durationSec: null,
-      geminiError: geminiClip?.error ? geminiClip.error.tag : null,
-      baselineError: clip.error ? clip.error.tag : null,
+      prediction: clip.prediction,
+      error: clip.error ? clip.error.tag : null,
+    }));
+    methods[id] = {
+      skipped: false,
+      definition: METHODS[id],
+      elapsedMs: run.elapsedMs,
+      scores: scoresForPairs(pairsFromRows(rows)),
+      rows: rows.map((row) => ({
+        name: row.name,
+        error: row.error,
+        gold: row.gold ? JSON.parse(autoAceJsonString(row.gold)) : null,
+        prediction: row.prediction ? JSON.parse(autoAceJsonString(row.prediction)) : null,
+      })),
     };
-  });
-
-  const geminiPairs = rows
-    .filter((row) => row.gold && row.gemini)
-    .map((row) => ({
-      gold: row.gold!.emotional_tone,
-      pred: row.gemini!.emotional_tone,
-    }));
-  const baselinePairs = rows
-    .filter((row) => row.gold && row.baseline)
-    .map((row) => ({
-      gold: row.gold!.emotional_tone,
-      pred: row.baseline!.emotional_tone,
-    }));
+  }
 
   const report = {
     classifierConfigured: classifierIsConfigured(),
     geminiModel: resolveGeminiModel(),
     audioTokenEstimatePerMinute: 1920,
-    estimatedUsdPerMinute: 0.0029,
+    estimatedUsdPerMinute: METHODS.fusion.costUsdPerMinute,
     costCeilingUsdPerMinute: 0.003,
-    baselineElapsedMs: baselineRun.elapsedMs,
-    geminiElapsedMs: geminiRun?.elapsedMs ?? null,
-    geminiConfusion: confusion(geminiPairs),
-    baselineConfusion: confusion(baselinePairs),
-    rows: rows.map((row) => ({
-      ...row,
-      gold: row.gold ? JSON.parse(autoAceJsonString(row.gold)) : null,
-      gemini: row.gemini ? JSON.parse(autoAceJsonString(row.gemini)) : null,
-      baseline: row.baseline ? JSON.parse(autoAceJsonString(row.baseline)) : null,
-    })),
+    methods,
   };
   const out = path.join(process.cwd(), "experiments/last-run.json");
   await writeFile(out, JSON.stringify(report, null, 2));

@@ -50,17 +50,22 @@ evaluation_batch/
 
 Supported audio: wav, mp3, ogg, m4a, flac.
 
-Create a batch from **New batch** on the Batches page (or drop a ZIP/folder onto that page), pick **Fusion** (production) or **Acoustic baseline** (control), then press **Run**. Files upload as soon as they parse. Classification does not start until you press Run.
+Create a batch from **New batch** on the Batches page (or drop a ZIP/folder onto that page), pick a method, then press **Run**. Files upload as soon as they parse. Classification does not start until you press Run. Hidden-set scoring should use **Fusion**.
 
 ### Methods
 
-- `fusion` — Gemini 3.6 Flash + acoustic fusion. Use this for hidden-set scoring.
-- `baseline` — DSP-only `AcousticBaselineClassifier`. Required second approach; not for production scoring.
+See [docs/GLOSSARY.md](docs/GLOSSARY.md) for the words method, classifier, and model. See [docs/METHODS.md](docs/METHODS.md) for field ownership and cost.
+
+- `fusion` — Gemini 3.6 Flash plus acoustic fusion. Production. Use this for hidden-set scoring.
+- `baseline` — DSP rules from RMS, SNR, and flatness. Naive control.
+- `prosody` — F0, speaking rate, and HNR rules. Literature DSP control.
+- `lexical` — Gemini labels tone from the customer's words. Experiment.
+- `gemini_only` — Gemini owns every field. Skips `fuse()`. Experiment.
 
 ### CLI
 
 ```bash
-npm run analyze -- /path/to/evaluation_batch
+npm run analyze -- /path/to/evaluation_batch --method fusion
 ```
 
 Writes `batch-<id>.json` in the working directory using the same `processClip` command.
@@ -71,7 +76,9 @@ Do not commit production `.ogg` files.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the hexagon, Convex data model, authz, and run sequence.
 
-See [docs/METHODS.md](docs/METHODS.md) for fusion policy, windowing, prompts, and cost math.
+See [docs/GLOSSARY.md](docs/GLOSSARY.md) for method versus classifier.
+
+See [docs/METHODS.md](docs/METHODS.md) for the method catalog, windowing, prompts, and cost math.
 
 See [docs/TECHNICAL_MEMO.md](docs/TECHNICAL_MEMO.md) for the short evaluation memo.
 

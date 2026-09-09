@@ -47,3 +47,12 @@ export const NOISE_SEVERITY_RANK: Record<"none" | "low" | "medium" | "high", num
     medium: 2,
     high: 3,
   };
+
+export const QUALITY_RANK: Record<
+  "clear" | "slightly_impaired" | "severely_impaired",
+  number
+> = {
+  clear: 0,
+  slightly_impaired: 1,
+  severely_impaired: 2,
+};

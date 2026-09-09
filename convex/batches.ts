@@ -5,6 +5,7 @@ import { requireUserId } from "./lib/auth"
 import { ownedOrNull } from "./lib/access"
 import { methodValidator } from "./schema"
 import { MAX_RUNNING_BATCHES, decideBatchLaunch } from "./lib/constants"
+import { modelForMethod } from "../src/application/methods"
 
 export const generateUploadUrl = mutation({
   args: {},
@@ -48,7 +49,7 @@ export const createDraft = mutation({
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
     const createdAt = Date.now()
-    const model = args.method === "fusion" ? "gemini-3.6-flash" : "acoustic-baseline"
+    const model = modelForMethod(args.method)
     const awaitingUpload = args.clips.some((clip) => !clip.storageId)
     const batchId = await ctx.db.insert("batches", {
       userId,
@@ -222,7 +223,7 @@ export const setMethod = mutation({
     }
     await ctx.db.patch(args.batchId, {
       method: args.method,
-      model: args.method === "fusion" ? "gemini-3.6-flash" : "acoustic-baseline",
+      model: modelForMethod(args.method),
     })
   },
 })
@@ -255,7 +256,7 @@ export const start = mutation({
     }
 
     const method = args.method ?? batch.method
-    const model = method === "fusion" ? "gemini-3.6-flash" : "acoustic-baseline"
+    const model = modelForMethod(method)
     const now = Date.now()
     const running = await ctx.db
       .query("batches")

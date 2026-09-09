@@ -20,6 +20,7 @@ export interface SemanticClassifier {
   classify(input: {
     audio: AudioBytes;
     durationSec: number;
+    acoustic?: AcousticMeasurements;
   }): Promise<Result<ClipPrediction, AnalyzeError>>;
 }
 

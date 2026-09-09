@@ -20,7 +20,7 @@ import {
 import { MethodCards } from "@/components/method-cards"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import type { AnalysisMethod } from "@/application/select-classifier"
+import type { AnalysisMethod } from "@/application/methods"
 
 export type NewBatchPanelProps = {
   initialFiles?: File[] | null

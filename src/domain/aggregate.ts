@@ -1,12 +1,13 @@
 import {
   INTENSITY_RANK,
   NOISE_SEVERITY_RANK,
+  QUALITY_RANK,
   TONE_SEVERITY,
   WINDOW_FULL_CLIP_MAX_SEC,
   WINDOW_OVERLAP_SEC,
   WINDOW_SEC,
 } from "./constants";
-import { noNoise, presentNoise, type ClipPrediction, type EmotionalTone, type Intensity, type WindowPrediction } from "./prediction";
+import { noNoise, presentNoise, type AudioQuality, type ClipPrediction, type EmotionalTone, type Intensity, type WindowPrediction } from "./prediction";
 
 export function windowBounds(durationSec: number): { startSec: number; endSec: number }[] {
   if (durationSec <= WINDOW_FULL_CLIP_MAX_SEC) {
@@ -34,6 +35,16 @@ function maxIntensity(values: Intensity[]): Intensity {
     }
   }
   return best;
+}
+
+function winningQuality(windows: WindowPrediction[]): AudioQuality {
+  let winner: AudioQuality = "clear";
+  for (const window of windows) {
+    if (QUALITY_RANK[window.audio_quality] > QUALITY_RANK[winner]) {
+      winner = window.audio_quality;
+    }
+  }
+  return winner;
 }
 
 function winningTone(windows: WindowPrediction[]): EmotionalTone {
@@ -107,7 +118,7 @@ export function aggregateWindows(windows: WindowPrediction[]): ClipPrediction {
     emotional_tone: tone,
     emotional_intensity: intensity,
     background_noise,
-    audio_quality: "clear",
+    audio_quality: winningQuality(windows),
     speaker_overlap_present: windows.some((window) => window.speaker_overlap_present),
     long_silence_present: windows.some((window) => window.long_silence_present),
     confidence: matches / windows.length,

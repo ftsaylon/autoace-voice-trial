@@ -10,7 +10,7 @@ import {
   peekPendingUpload,
 } from "@/lib/batch-upload-queue"
 import { uploadClipBytes } from "@/lib/prepare-batch"
-import type { AnalysisMethod } from "@/application/select-classifier"
+import type { AnalysisMethod } from "@/application/methods"
 import type { ParsedBatchInput } from "@/application/parse-batch"
 
 type BatchClip = {

@@ -1,17 +1,41 @@
 import { readdir, readFile, writeFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { getDeps } from "@/adapters/composition";
+import { createDeps } from "@/adapters/composition";
+import { DEFAULT_METHOD, parseMethodId } from "@/application/methods";
 import { createBatch, createBatchFromZip } from "@/application/create-batch";
 import { processBatchToCompletion } from "@/application/process-clip";
 import { batchToJson } from "@/application/download-batch";
 
+function parseArgs(argv: string[]) {
+  let target: string | undefined
+  let method = DEFAULT_METHOD
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!
+    if (arg === "--method") {
+      const value = argv[i + 1]
+      const parsed = parseMethodId(value)
+      if (!parsed) {
+        console.error(`Unknown method: ${value ?? "(missing)"}`)
+        process.exit(1)
+      }
+      method = parsed
+      i += 1
+      continue
+    }
+    if (!arg.startsWith("-") && !target) {
+      target = arg
+    }
+  }
+  return { target, method }
+}
+
 async function main() {
-  const target = process.argv[2];
+  const { target, method } = parseArgs(process.argv.slice(2));
   if (!target) {
-    console.error("Usage: npm run analyze -- /path/to/evaluation_batch_or.zip");
+    console.error("Usage: npm run analyze -- /path/to/evaluation_batch_or.zip [--method fusion]");
     process.exit(1);
   }
-  const deps = await getDeps();
+  const deps = await createDeps(method);
   const resolved = path.resolve(target);
   const info = await stat(resolved);
   const batch = info.isFile()
@@ -41,6 +65,7 @@ async function main() {
     store: deps.store,
     acoustic: deps.acoustic,
     classifier: deps.classifier,
+    fuseQualityAndSilence: deps.fuseQualityAndSilence,
     batchId: batch.id,
   });
   const finished = await deps.repo.get(batch.id);

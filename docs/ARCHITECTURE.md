@@ -25,7 +25,7 @@ flowchart LR
 ## Layers
 
 - `src/domain` — AutoAce JSON codec, fusion, window aggregation, prediction types
-- `src/application` — `parseManifestAndFiles`, `processClip`, scoring, method routing
+- `src/application` — `parseManifestAndFiles`, `processClip`, scoring, method registry
 - `convex/` — schema, auth, queries/mutations, scheduler worker
 - `src/app` and `src/components` — operator UI
 - `src/adapters/cli` — local `npm run analyze` using the same `processClip`
@@ -68,7 +68,7 @@ sequenceDiagram
   Convex->>Worker: scheduler.runAfter processNext
   loop Each queued clip
     Worker->>Worker: ffmpeg decode, windows
-    Worker->>Gemini: classify window (fusion only)
+    Worker->>Gemini: classify window when the method needs Gemini
     Worker->>Convex: stage logs, complete clip
     Worker->>Worker: schedule next clip
   end
@@ -77,7 +77,7 @@ sequenceDiagram
 
 1. Drop or choose files. Empty `result_json` is unlabeled, not fatal. Missing `labels.csv` is fatal.
 2. Parsed clips upload to Convex storage immediately (parallel, bounded concurrency). Run stays disabled until every clip is stored.
-3. Method (Fusion / Baseline) can be chosen with or without files.
+3. Method (`fusion`, `baseline`, `lexical`, `prosody`, `gemini_only`) can be chosen with or without files.
 4. Run creates a draft then starts it. Drafts are not processed.
 5. At most two batches run at once. Further starts are `queued`.
 6. Clips inside a batch are serialized (Gemini RPM). Separate batches have their own scheduler chains.

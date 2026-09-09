@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest"
+import { DEFAULT_METHOD, type MethodId } from "@/application/methods"
 
-/**
- * Method selection should honor a user pick even before files exist.
- * Mirrors NewBatchPanel: settings seed the display until the user overrides.
- */
 const resolveMethod = (
-  settingsDefault: "fusion" | "baseline" | undefined,
-  method: "fusion" | "baseline" | null,
-): "fusion" | "baseline" => {
-  return method ?? settingsDefault ?? "fusion"
+  settingsDefault: MethodId | undefined,
+  method: MethodId | null,
+): MethodId => {
+  return method ?? settingsDefault ?? DEFAULT_METHOD
 }
 
 describe("new batch method selection", () => {
@@ -20,6 +17,6 @@ describe("new batch method selection", () => {
   it("keeps the user pick even when settings load later", () => {
     expect(resolveMethod("fusion", "baseline")).toBe("baseline")
     expect(resolveMethod("baseline", "fusion")).toBe("fusion")
+    expect(resolveMethod("fusion", "lexical")).toBe("lexical")
   })
 })
-
