@@ -153,4 +153,32 @@ describe("ProcessClip", () => {
     expect(requeued?.clips[0]?.prediction).toBeNull();
     expect(requeued?.clips[0]?.error).toBeNull();
   });
+
+  it("still completes when stage logging throws", async () => {
+    const repo = new MemoryBatchRepository();
+    const store = new MemoryAudioStore();
+    const batch = await createBatch({
+      repo,
+      store,
+      files: [
+        {
+          name: "labels.csv",
+          bytes: new TextEncoder().encode("name,result_json\ncall_ok.wav,\n"),
+        },
+        { name: "call_ok.wav", bytes: wavBytes() },
+      ],
+    });
+    await processBatchToCompletion({
+      repo,
+      store,
+      acoustic: fakeAcoustic,
+      classifier: fakeClassifier,
+      batchId: batch.id,
+      onStage: async () => {
+        throw new Error("log append failed");
+      },
+    });
+    const stored = await repo.get(batch.id);
+    expect(stored?.clips[0]?.state).toBe("succeeded");
+  });
 });

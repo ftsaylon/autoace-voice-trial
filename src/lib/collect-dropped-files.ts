@@ -83,12 +83,13 @@ export function buildUploadFormData(files: File[]): FormData | { error: string }
   }
 
   const audioFiles = files.filter((file) => isAudioFile(file.name));
+  const csvFiles = files.filter((file) => file.name.toLowerCase().endsWith(".csv"));
   if (audioFiles.length === 0) {
     return { error: "Drop a ZIP archive or audio files (wav, mp3, ogg, m4a, flac)." };
   }
 
   const form = new FormData();
-  for (const file of audioFiles) {
+  for (const file of [...audioFiles, ...csvFiles]) {
     form.append("files", file, file.name);
   }
   return form;

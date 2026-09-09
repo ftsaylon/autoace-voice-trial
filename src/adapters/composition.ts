@@ -1,5 +1,6 @@
 import { FfmpegAcousticAnalyzer } from "@/adapters/acoustic/ffmpeg-analyzer";
-import { GeminiClassifier, classifierIsConfigured } from "@/adapters/gemini/gemini-classifier";
+import { classifierIsConfigured } from "@/adapters/gemini/gemini-classifier"
+import { classifierForMethod } from "@/application/select-classifier"
 import { FilesystemAudioStore } from "@/adapters/storage/fs-audio-store";
 import { SqliteBatchRepository } from "@/adapters/storage/sqlite-repository";
 import type {
@@ -28,11 +29,12 @@ export function getDeps(): Promise<AppDeps> {
       const store = new FilesystemAudioStore(
         process.env.AUDIO_ROOT ?? path.resolve("data/audio"),
       );
+      const acoustic = new FfmpegAcousticAnalyzer()
       return {
         repo,
         store,
-        acoustic: new FfmpegAcousticAnalyzer(),
-        classifier: new GeminiClassifier(),
+        acoustic,
+        classifier: classifierForMethod("fusion", acoustic),
       };
     })();
   }

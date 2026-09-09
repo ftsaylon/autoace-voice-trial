@@ -4,11 +4,12 @@ import path from "node:path";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts", "experiments/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "convex/**/*.test.ts", "experiments/**/*.test.ts"],
   },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@convex": path.resolve(__dirname, "./convex"),
     },
   },
 });

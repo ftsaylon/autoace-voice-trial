@@ -54,6 +54,25 @@ describe("parseManifestAndFiles", () => {
     expect(parsed.clips).toHaveLength(1);
     expect(parsed.clips[0]?.gold?.emotional_tone).toBe("neutral");
   });
+
+  it("treats empty result_json as unlabeled instead of fatal", () => {
+    const parsed = parseManifestAndFiles([
+      {
+        name: "labels.csv",
+        bytes: new TextEncoder().encode("name,result_json\ncall_ok.wav,\n"),
+      },
+      { name: "call_ok.wav", bytes: wavBytes() },
+    ]);
+    expect(parsed.clips).toHaveLength(1);
+    expect(parsed.clips[0]?.gold).toBeNull();
+    expect(parsed.parseIssues).toEqual([]);
+  });
+
+  it("errors when labels.csv is missing", () => {
+    const parsed = parseManifestAndFiles([{ name: "call_ok.wav", bytes: wavBytes() }]);
+    expect(parsed.clips).toEqual([]);
+    expect(parsed.parseIssues).toEqual(["Batch is missing labels.csv"]);
+  });
 });
 
 describe("filesFromZip", () => {

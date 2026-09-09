@@ -51,3 +51,11 @@ experiments/last-run.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# convex
+.convex/
+
+# ingested assessment (local reference only)
+docs/assessment.md
+
+.env.convex-auth

@@ -23,7 +23,19 @@ describe("buildUploadFormData", () => {
     }
   });
 
+  it("keeps labels.csv with folder audio files", () => {
+    const files = [
+      new File(["a"], "call_001.ogg", { type: "audio/ogg" }),
+      new File(["name,result_json\ncall_001.ogg,\n"], "labels.csv", { type: "text/csv" }),
+    ]
+    const result = buildUploadFormData(files)
+    expect("error" in result).toBe(false)
+    if (!("error" in result)) {
+      expect(result.getAll("files")).toHaveLength(2)
+    }
+  })
+
   it("rejects empty drops", () => {
-    expect(buildUploadFormData([])).toEqual({ error: "No files were dropped." });
-  });
+    expect(buildUploadFormData([])).toEqual({ error: "No files were dropped." })
+  })
 });

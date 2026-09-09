@@ -1,26 +1,40 @@
 # AutoAce voice tone and noise trial
 
-Hosted dashboard for classifying customer emotional tone and background noise in production call audio. AutoAce can log in, upload an evaluation ZIP, watch clip-by-clip progress, and download the required JSON schema.
+Hosted operator dashboard for classifying customer emotional tone and background noise in production call audio. AutoAce can log in, create a batch from a ZIP or folder, pick a method, run concurrent jobs, watch live clip logs, and download schema-faithful CSV/JSON.
 
-Production inference uses Gemini 3.6 Flash with constrained decoding. An acoustic engine owns silence and technical quality. Gold `result_json` is used only for scoring. It never enters the model.
+Production inference uses Gemini 3.6 Flash with constrained decoding, fused with ffmpeg acoustics. Gold `result_json` is used only for scoring. It never enters the model.
+
+Audio leaves AutoAce infrastructure and is stored in **Convex** and sent to **Google Gemini**.
 
 ## Run locally
 
 ```bash
 cp env.example .env.local
 npm install
+npx convex dev
+```
+
+In a second terminal:
+
+```bash
 npm test
 npm run dev
 ```
 
-Open http://127.0.0.1:43123. Sign in with the credentials in `env.example`.
+Open http://127.0.0.1:43123.
 
-Set `GOOGLE_GENERATIVE_AI_API_KEY` before analyzing real calls. Without a key, clips fail with `classifier_unavailable` instead of a fake prediction.
+`npx convex dev` pushes functions, regenerates `convex/_generated`, and keeps the scheduler worker running. The Next app talks to `NEXT_PUBLIC_CONVEX_URL`.
+
+Set `GOOGLE_GENERATIVE_AI_API_KEY` on the Convex deployment (`npx convex env set GOOGLE_GENERATIVE_AI_API_KEY`) before analyzing real calls. Without a key, fusion clips fail with `classifier_unavailable` instead of a fake prediction.
 
 ### Login
 
-- Username: `autoace`
+Convex Auth Password. The trial UI accepts the provided username and maps it to an email account:
+
+- Username: `autoace` (stored as `autoace@eval.local`)
 - Password: `trial-eval-2026`
+
+The first successful sign-in creates the Password user if it does not exist yet.
 
 ### Batch shape
 
@@ -32,9 +46,16 @@ evaluation_batch/
   labels.csv
 ```
 
-`labels.csv` must include a `name` column (exact filename plus extension). `result_json` is optional.
+`labels.csv` must include a `name` column (exact filename plus extension). `result_json` is optional and may be empty on the hidden set.
 
 Supported audio: wav, mp3, ogg, m4a, flac.
+
+Create a batch from **New batch**, pick **Fusion** (production) or **Acoustic baseline** (control), then press **Run**. Processing does not start on upload.
+
+### Methods
+
+- `fusion` — Gemini 3.6 Flash + acoustic fusion. Use this for hidden-set scoring.
+- `baseline` — DSP-only `AcousticBaselineClassifier`. Required second approach; not for production scoring.
 
 ### CLI
 
@@ -42,34 +63,23 @@ Supported audio: wav, mp3, ogg, m4a, flac.
 npm run analyze -- /path/to/evaluation_batch
 ```
 
-Writes `batch-<id>.json` in the working directory.
-
-### Experiments
-
-```bash
-npx tsx experiments/run-comparison.ts /path/to/evaluation_batch
-```
-
-Compares Gemini with the acoustic baseline through the same `ProcessClip` command.
+Writes `batch-<id>.json` in the working directory using the same `processClip` command.
 
 Do not commit production `.ogg` files.
 
 ## Architecture
 
-- `src/domain` prediction types, AutoAce JSON codec, fusion, window aggregation
-- `src/application` CreateBatch, ProcessClip, GetBatch
-- `src/adapters` Gemini, ffmpeg acoustics, SQLite, filesystem audio, HTTP, CLI
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the hexagon, Convex data model, authz, and run sequence.
 
-See [docs/TECHNICAL_MEMO.md](docs/TECHNICAL_MEMO.md) for model choice, cost, latency, and failure modes.
+See [docs/METHODS.md](docs/METHODS.md) for fusion policy, windowing, prompts, and cost math.
+
+See [docs/TECHNICAL_MEMO.md](docs/TECHNICAL_MEMO.md) for the short evaluation memo.
 
 ## Deploy
 
-A production deploy is at https://workspace-beryl-nine-33.vercel.app.
+A previous Vercel URL may still exist; this revision needs a Convex deployment plus Next.js.
 
-Sign in with username `autoace` and password `trial-eval-2026`.
-
-Set `GOOGLE_GENERATIVE_AI_API_KEY` on the host before scoring hidden audio. Without it, clips fail with `classifier_unavailable`.
-
-Vercel serverless uses `/tmp` for SQLite and audio. ffmpeg-static's install script is skipped on some Vercel builds, so decode can fail there. For the evaluation period, run `npm run start` (or `npm run dev`) on a Node host with disk if you need local acoustics plus Gemini.
-
-Environment variables: `AUTOACE_USER`, `AUTOACE_PASSWORD`, `SESSION_SECRET` (32+ characters), `GOOGLE_GENERATIVE_AI_API_KEY`, optional `GEMINI_MODEL` (default `gemini-3.6-flash`), `DATABASE_URL`, and `AUDIO_ROOT`. `maxDuration` on analysis routes is 300 seconds.
+1. `npx convex deploy` only for production (not during development).
+2. Set Convex env: `SITE_URL`, `JWT_PRIVATE_KEY`, `JWKS`, `GOOGLE_GENERATIVE_AI_API_KEY`, optional `GEMINI_MODEL`.
+3. Set Next env: `NEXT_PUBLIC_CONVEX_URL`, `NEXT_PUBLIC_CONVEX_SITE_URL`.
+4. Host the Next app. ffmpeg runs inside Convex Node actions, not on Vercel `/tmp`.

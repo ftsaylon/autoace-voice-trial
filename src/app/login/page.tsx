@@ -1,72 +1,87 @@
-"use client";
+"use client"
 
-import { useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { AlertCircleIcon } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { useState } from "react"
+import { useRouter } from "next/navigation"
+import { useAuthActions } from "@convex-dev/auth/react"
+import { AlertCircleIcon } from "lucide-react"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card";
+} from "@/components/ui/card"
+import { normalizeAuthEmail } from "@/lib/trial-auth"
 
 export default function LoginPage() {
-  const router = useRouter();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+  const router = useRouter()
+  const { signIn } = useAuthActions()
+  const [username, setUsername] = useState("")
+  const [password, setPassword] = useState("")
+  const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
 
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    setPending(true);
-    setError(null);
-    const response = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    setPending(false);
-    if (!response.ok) {
-      const body = (await response.json()) as { error?: string };
-      setError(body.error ?? "Login failed");
-      return;
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setPending(true)
+    setError(null)
+    const email = normalizeAuthEmail(username)
+    const attempt = async (flow: "signIn" | "signUp") => {
+      const formData = new FormData()
+      formData.set("email", email)
+      formData.set("password", password)
+      formData.set("flow", flow)
+      await signIn("password", formData)
     }
-    router.replace("/");
-    router.refresh();
+    try {
+      try {
+        await attempt("signIn")
+      } catch {
+        await attempt("signUp")
+      }
+      router.replace("/batches")
+      router.refresh()
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Login failed. Check the evaluation username and password.",
+      )
+    } finally {
+      setPending(false)
+    }
   }
 
   return (
-    <div className="flex min-h-full flex-1 items-center justify-center bg-muted/30 px-4 py-10">
+    <div className="flex h-svh flex-1 items-center justify-center overflow-auto bg-background px-4 py-10">
       <div className="grid w-full max-w-4xl gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
         <section className="hidden space-y-4 lg:block">
-          <p className="text-sm font-medium text-primary">AutoAce evaluation portal</p>
+          <p className="text-sm font-medium">AutoAce evaluation</p>
           <h1 className="text-4xl font-semibold tracking-tight">
-            Review call tone and noise at batch scale
+            Run labeled call batches without leaving the operator tool
           </h1>
           <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
-            Sign in to upload labeled audio, monitor processing, and export structured
-            predictions for AutoAce scoring.
+            Sign in with the trial credentials. Concurrent batches keep processing
+            while you move between list, logs, and settings.
           </p>
         </section>
-        <Card className="w-full shadow-sm">
+        <Card className="w-full shadow-none">
           <CardHeader className="space-y-2">
-            <p className="text-xs font-semibold tracking-[0.18em] text-primary uppercase lg:hidden">
+            <p className="text-xs font-semibold tracking-[0.18em] uppercase lg:hidden">
               AutoAce
             </p>
             <CardTitle>Sign in</CardTitle>
             <CardDescription>
-              Use the evaluation credentials provided for this trial.
+              Use the evaluation credentials. Username <code>autoace</code> maps to
+              the Password account.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form className="space-y-4" onSubmit={onSubmit}>
+            <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
               <div className="space-y-2">
                 <Label htmlFor="username">Username</Label>
                 <Input
@@ -95,21 +110,13 @@ export default function LoginPage() {
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               ) : null}
-              <Button type="submit" className="w-full" disabled={pending}>
+              <Button type="submit" className="h-10 w-full" disabled={pending}>
                 {pending ? "Signing in…" : "Sign in"}
               </Button>
             </form>
-            <p className="mt-4 text-center text-xs text-muted-foreground">
-              Need access? Credentials are listed in env.example for local evaluation.
-            </p>
-            <p className="mt-2 text-center text-xs">
-              <Link href="/" className="text-primary hover:underline">
-                Back to upload
-              </Link>
-            </p>
           </CardContent>
         </Card>
       </div>
     </div>
-  );
+  )
 }
