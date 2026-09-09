@@ -13,7 +13,7 @@ import {
   type NewBatch,
 } from "@/domain";
 import type { Result } from "@/domain/result";
-import type { AudioStore, BatchRepository } from "@/application/ports";
+import type { AudioStore, BatchRepository, RequeueScope } from "@/application/ports";
 
 function parsePrediction(json: string | null): ClipPrediction | null {
   if (!json) {
@@ -179,5 +179,20 @@ export class SqliteBatchRepository implements BatchRepository {
       sql: `UPDATE clips SET state = 'failed', error_json = ? WHERE id = ?`,
       args: [JSON.stringify(result.error), clipId],
     });
+  }
+
+  async requeueClips(batchId: string, scope: RequeueScope): Promise<number> {
+    const states =
+      scope === "failed"
+        ? ["failed"]
+        : ["failed", "succeeded", "running"];
+    const placeholders = states.map(() => "?").join(", ");
+    const result = await this.client.execute({
+      sql: `UPDATE clips
+            SET state = 'queued', prediction_json = NULL, error_json = NULL, claimed_at = NULL
+            WHERE batch_id = ? AND state IN (${placeholders})`,
+      args: [batchId, ...states],
+    });
+    return result.rowsAffected;
   }
 }

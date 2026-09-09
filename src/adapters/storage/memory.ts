@@ -10,7 +10,7 @@ import {
 } from "@/domain";
 import type { Result } from "@/domain/result";
 import { randomUUID } from "node:crypto";
-import type { AudioStore, BatchRepository } from "@/application/ports";
+import type { AudioStore, BatchRepository, RequeueScope } from "@/application/ports";
 
 type ClipRecord = {
   id: string;
@@ -157,6 +157,26 @@ export class MemoryBatchRepository implements BatchRepository {
       clip.errorJson = JSON.stringify(result.error);
     }
     this.clips.set(clipId, clip);
+  }
+
+  async requeueClips(batchId: string, scope: RequeueScope): Promise<number> {
+    const states =
+      scope === "failed"
+        ? new Set<ClipRow["state"]>(["failed"])
+        : new Set<ClipRow["state"]>(["failed", "succeeded", "running"]);
+    let requeued = 0;
+    for (const clip of this.clips.values()) {
+      if (clip.batchId !== batchId || !states.has(clip.state)) {
+        continue;
+      }
+      clip.state = "queued";
+      clip.predictionJson = null;
+      clip.errorJson = null;
+      clip.claimedAt = null;
+      this.clips.set(clip.id, clip);
+      requeued += 1;
+    }
+    return requeued;
   }
 }
 

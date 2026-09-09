@@ -37,6 +37,8 @@ export interface AudioStore {
   get(ref: AudioRef): Promise<AudioBytes>;
 }
 
+export type RequeueScope = "failed" | "all";
+
 export interface BatchRepository {
   create(batch: NewBatch, store: AudioStore): Promise<Batch>;
   get(id: string): Promise<Batch | null>;
@@ -45,4 +47,5 @@ export interface BatchRepository {
     clipId: string,
     result: Result<ClipPrediction, AnalyzeError>,
   ): Promise<void>;
+  requeueClips(batchId: string, scope: RequeueScope): Promise<number>;
 }

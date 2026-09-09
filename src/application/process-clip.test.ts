@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MemoryAudioStore, MemoryBatchRepository } from "@/adapters/storage/memory";
 import { createBatch } from "./create-batch";
 import { processBatchToCompletion, processNextClip } from "./process-clip";
+import { requeueBatch } from "./requeue-batch";
 import type { AcousticAnalyzer, SemanticClassifier } from "./ports";
 import { ok } from "@/domain/result";
 import { noNoise, presentNoise, type ClipPrediction } from "@/domain";
@@ -120,5 +121,36 @@ describe("ProcessClip", () => {
     });
     const second = await repo.get(batch.id);
     expect(second?.clips[0]?.prediction?.background_noise).toEqual(noNoise);
+  });
+
+  it("requeues failed clips so they can run again", async () => {
+    const repo = new MemoryBatchRepository();
+    const store = new MemoryAudioStore();
+    const batch = await createBatch({
+      repo,
+      store,
+      files: [
+        {
+          name: "labels.csv",
+          bytes: new TextEncoder().encode("name,result_json\ncall_ok.wav,\n"),
+        },
+        { name: "call_ok.wav", bytes: wavBytes() },
+      ],
+    });
+    const clip = (await repo.get(batch.id))!.clips[0]!;
+    await repo.complete(clip.id, {
+      ok: false,
+      error: { tag: "classifier_unavailable" },
+    });
+    const failed = await repo.get(batch.id);
+    expect(failed?.clips[0]?.state).toBe("failed");
+
+    const result = await requeueBatch(repo, batch.id, "failed");
+    expect(result?.requeued).toBe(1);
+
+    const requeued = await repo.get(batch.id);
+    expect(requeued?.clips[0]?.state).toBe("queued");
+    expect(requeued?.clips[0]?.prediction).toBeNull();
+    expect(requeued?.clips[0]?.error).toBeNull();
   });
 });
