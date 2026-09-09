@@ -15,6 +15,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  getLoginErrorMessage,
+  INVALID_CREDENTIALS_MESSAGE,
+  isExistingAccountError,
+  LoginFailedError,
+} from "@/lib/auth-errors"
 import { normalizeAuthEmail } from "@/lib/trial-auth"
 
 export default function LoginPage() {
@@ -41,16 +47,19 @@ export default function LoginPage() {
       try {
         await attempt("signIn")
       } catch {
-        await attempt("signUp")
+        try {
+          await attempt("signUp")
+        } catch (signUpError) {
+          if (isExistingAccountError(signUpError)) {
+            throw new LoginFailedError(INVALID_CREDENTIALS_MESSAGE)
+          }
+          throw signUpError
+        }
       }
       router.replace("/batches")
       router.refresh()
     } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "Login failed. Check the evaluation username and password.",
-      )
+      setError(getLoginErrorMessage(caught))
     } finally {
       setPending(false)
     }

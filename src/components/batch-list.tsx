@@ -5,20 +5,46 @@ import { useMemo, useState } from "react"
 import { useConvexAuth, useConvex, useQuery } from "convex/react"
 import { MoreHorizontalIcon } from "lucide-react"
 import { api } from "@convex/_generated/api"
+import {
+  StatusFilterGroup,
+  type StatusFilterOption,
+} from "@/components/status-filter-group"
 import { StatusIcon } from "@/components/status-icon"
-import { Badge } from "@/components/ui/badge"
+import { MethodBadge } from "@/components/batch-badges"
 import { Button } from "@/components/ui/button"
 import { clipsToCsv, clipsToJson, downloadTextFile } from "@/lib/export-clips"
 import { formatDuration, relativeTime } from "@/lib/format-time"
 
 const FILTERS = ["all", "running", "queued", "complete", "failed", "draft"] as const
+type BatchFilter = (typeof FILTERS)[number]
+
+const FILTER_OPTIONS: readonly StatusFilterOption<BatchFilter>[] = [
+  { value: "all", label: "All", tone: "neutral" },
+  { value: "running", label: "Running", tone: "running" },
+  { value: "queued", label: "Queued", tone: "queued" },
+  { value: "complete", label: "Complete", tone: "complete" },
+  { value: "failed", label: "Failed", tone: "failed" },
+  { value: "draft", label: "Draft", tone: "draft" },
+]
 
 export const BatchList = () => {
   const { isAuthenticated } = useConvexAuth()
   const batches = useQuery(api.batches.list, isAuthenticated ? {} : "skip")
   const convex = useConvex()
-  const [filter, setFilter] = useState<(typeof FILTERS)[number]>("all")
+  const [filter, setFilter] = useState<BatchFilter>("all")
   const [menuId, setMenuId] = useState<string | null>(null)
+
+  const filterOptions = useMemo(() => {
+    const counts = new Map<BatchFilter, number>(FILTERS.map((item) => [item, 0]))
+    for (const batch of batches ?? []) {
+      counts.set(batch.status, (counts.get(batch.status) ?? 0) + 1)
+      counts.set("all", (counts.get("all") ?? 0) + 1)
+    }
+    return FILTER_OPTIONS.map((option) => ({
+      ...option,
+      count: counts.get(option.value) ?? 0,
+    }))
+  }, [batches])
 
   const rows = useMemo(() => {
     if (!batches) {
@@ -57,19 +83,12 @@ export const BatchList = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap gap-2">
-        {FILTERS.map((item) => (
-          <Button
-            key={item}
-            type="button"
-            variant={filter === item ? "default" : "outline"}
-            size="lg"
-            onClick={() => setFilter(item)}
-          >
-            {item === "all" ? "All" : item}
-          </Button>
-        ))}
-      </div>
+      <StatusFilterGroup
+        value={filter}
+        onValueChange={setFilter}
+        options={filterOptions}
+        ariaLabel="Filter batches by status"
+      />
       {rows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-card p-10">
           <h2 className="text-base font-medium">No batches yet</h2>
@@ -100,7 +119,7 @@ export const BatchList = () => {
                   {` · ${relativeTime(batch.createdAt)}`}
                 </p>
               </Link>
-              <Badge variant="outline">{batch.method}</Badge>
+              <MethodBadge method={batch.method} />
               <div className="relative">
                 <Button
                   type="button"

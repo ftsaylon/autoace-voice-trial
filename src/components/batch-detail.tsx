@@ -9,7 +9,7 @@ import type { Id } from "@convex/_generated/dataModel"
 import { StatusIcon } from "@/components/status-icon"
 import { MethodCards } from "@/components/method-cards"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
+import { MethodBadge, ModelBadge } from "@/components/batch-badges"
 import {
   Dialog,
   DialogContent,
@@ -154,8 +154,8 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
           <div className="flex flex-wrap items-center gap-3">
             <StatusIcon status={batch.status} />
             <h1 className="text-2xl font-semibold tracking-tight">{batch.name}</h1>
-            <Badge variant="outline">{batch.method}</Badge>
-            <Badge variant="outline">{batch.model}</Badge>
+            <MethodBadge method={batch.method} />
+            <ModelBadge model={batch.model} />
           </div>
           <p className="text-sm text-muted-foreground">
             {batch.succeededCount + batch.failedCount}/{batch.clipCount} clips
