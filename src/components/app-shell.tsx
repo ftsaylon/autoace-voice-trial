@@ -94,13 +94,7 @@ const SidebarCollapseControl = () => {
 
 const emptySubscribe = () => () => {}
 
-export const AppShell = ({
-  children,
-  defaultSidebarOpen = true,
-}: {
-  children: React.ReactNode
-  defaultSidebarOpen?: boolean
-}) => {
+export const AppShell = ({ children }: { children: React.ReactNode }) => {
   const pathname = usePathname()
   const { signOut } = useAuthActions()
   const { resolvedTheme, setTheme } = useTheme()
@@ -116,7 +110,7 @@ export const AppShell = ({
   }
 
   return (
-    <SidebarProvider defaultOpen={defaultSidebarOpen} className="h-svh overflow-hidden">
+    <SidebarProvider className="h-svh overflow-hidden">
       <Sidebar collapsible="icon">
         <SidebarHeader className="group-data-[collapsible=icon]:px-1 group-data-[collapsible=icon]:pb-2">
           <Link
@@ -153,7 +147,7 @@ export const AppShell = ({
                         isActive={isNavActive(item.href, pathname)}
                         tooltip={item.label}
                       >
-                        <Link href={item.href}>
+                        <Link href={item.href} prefetch={true}>
                           <Icon />
                           <span>{item.label}</span>
                           <NavLinkPending />

@@ -27,6 +27,20 @@ import { PanelLeftIcon } from "lucide-react"
 
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
 const SIDEBAR_WIDTH = "16rem"
+
+function readSidebarOpenFromCookie(): boolean | null {
+  if (typeof document === "undefined") {
+    return null
+  }
+  const match = document.cookie
+    .split("; ")
+    .find((row) => row.startsWith(`${SIDEBAR_COOKIE_NAME}=`))
+  if (match === undefined) {
+    return null
+  }
+  const value = match.slice(`${SIDEBAR_COOKIE_NAME}=`.length)
+  return value !== "false"
+}
 const SIDEBAR_WIDTH_MOBILE = "18rem"
 const SIDEBAR_WIDTH_ICON = "4rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
@@ -86,6 +100,17 @@ function SidebarProvider({
     },
     [setOpenProp, open]
   )
+
+  // Restore persisted open/closed state after hydration without blocking navigation.
+  React.useLayoutEffect(() => {
+    if (openProp !== undefined) {
+      return
+    }
+    const persisted = readSidebarOpenFromCookie()
+    if (persisted === false) {
+      _setOpen(false)
+    }
+  }, [openProp])
 
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {
