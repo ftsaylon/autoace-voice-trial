@@ -1,6 +1,6 @@
 import { Skeleton } from "@/components/ui/skeleton"
 
-export default function AppLoading() {
+export default function BatchDetailLoading() {
   return (
     <div className="space-y-8">
       <div className="space-y-2">
