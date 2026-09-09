@@ -1,18 +1,21 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useConvexAuth, useMutation, useQuery } from "convex/react"
 import { LoaderCircleIcon, XIcon } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@convex/_generated/api"
-import { collectDroppedFiles, resetFileInput } from "@/lib/collect-dropped-files"
+import { collectDroppedFiles } from "@/lib/collect-dropped-files"
 import { stashPendingUpload } from "@/lib/batch-upload-queue"
 import {
   clipsToUploads,
   defaultBatchName,
+  formatFileSize,
+  isAbortError,
   parseDroppedFiles,
   parsedInputFromUploads,
-  type ClipUpload,
+  mergeSelectedBatchFiles,
+  type SelectedBatchFile,
 } from "@/lib/prepare-batch"
 import { MethodCards } from "@/components/method-cards"
 import { Button } from "@/components/ui/button"
@@ -24,6 +27,8 @@ export type NewBatchPanelProps = {
   onStarted?: (batchId: string) => void
   onDiscard?: () => void
   onBusyChange?: (busy: boolean) => void
+  onFilePickerOpen?: () => void
+  onFilePickerSettled?: () => void
   discardRef?: React.MutableRefObject<(() => Promise<void>) | null>
 }
 
@@ -32,41 +37,25 @@ export const NewBatchPanel = ({
   onStarted,
   onDiscard,
   onBusyChange,
+  onFilePickerOpen,
+  onFilePickerSettled,
   discardRef,
 }: NewBatchPanelProps) => {
   const { isAuthenticated } = useConvexAuth()
   const settings = useQuery(api.settings.get, isAuthenticated ? {} : "skip")
   const createDraft = useMutation(api.batches.createDraft)
   const [dragging, setDragging] = useState(false)
-  const [parseIssues, setParseIssues] = useState<string[]>([])
-  const [uploads, setUploads] = useState<ClipUpload[]>([])
+  const [selected, setSelected] = useState<SelectedBatchFile[]>([])
   const [method, setMethod] = useState<AnalysisMethod | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [parsing, setParsing] = useState(false)
+  const [errors, setErrors] = useState<string[]>([])
   const [starting, setStarting] = useState(false)
   const initialHandled = useRef(false)
-  const generationRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
   const transferredRef = useRef(false)
-  const disposedRef = useRef(false)
   const startingRef = useRef(false)
   const runInFlightRef = useRef(false)
 
   const selectedMethod: AnalysisMethod = method ?? settings?.defaultMethod ?? "fusion"
-
-  const beginGeneration = useCallback(() => {
-    abortRef.current?.abort()
-    const controller = new AbortController()
-    abortRef.current = controller
-    generationRef.current += 1
-    transferredRef.current = false
-    return { generation: generationRef.current, signal: controller.signal }
-  }, [])
-
-  const isCurrent = (generation: number) =>
-    !disposedRef.current &&
-    generation === generationRef.current &&
-    !transferredRef.current
 
   const setRunBusy = useCallback(
     (busy: boolean) => {
@@ -81,11 +70,11 @@ export const NewBatchPanel = ({
     if (startingRef.current || transferredRef.current) {
       return
     }
-    beginGeneration()
-    setUploads([])
-    setParseIssues([])
+    abortRef.current?.abort()
+    setSelected([])
+    setErrors([])
     onDiscard?.()
-  }, [beginGeneration, onDiscard])
+  }, [onDiscard])
 
   useEffect(() => {
     if (discardRef) {
@@ -101,46 +90,23 @@ export const NewBatchPanel = ({
   useEffect(() => {
     return () => {
       onBusyChange?.(false)
+      abortRef.current?.abort()
     }
   }, [onBusyChange])
 
-  useEffect(() => {
-    return () => {
-      disposedRef.current = true
-      abortRef.current?.abort()
-    }
-  }, [])
-
-  const handleFiles = async (files: File[]) => {
+  const handleAcceptFiles = (files: File[]) => {
     if (startingRef.current || transferredRef.current) {
       return
     }
-    const { generation, signal } = beginGeneration()
-    setError(null)
-    setParsing(true)
-    try {
-      const next = await parseDroppedFiles(files)
-      if (!isCurrent(generation) || signal.aborted) {
-        return
+    setSelected((current) => {
+      const next = mergeSelectedBatchFiles(current, files)
+      if (next.length === 0) {
+        setErrors(["No files were selected"])
+        return current
       }
-      setParseIssues(next.parseIssues)
-      if (next.clips.length === 0) {
-        setUploads([])
-        setError(next.parseIssues[0] ?? "No valid clips to process")
-        return
-      }
-      setUploads(clipsToUploads(next))
-    } catch (caught) {
-      if (!isCurrent(generation)) {
-        return
-      }
-      setError(caught instanceof Error ? caught.message : "Could not parse the drop")
-      setUploads([])
-    } finally {
-      if (isCurrent(generation)) {
-        setParsing(false)
-      }
-    }
+      setErrors([])
+      return next
+    })
   }
 
   useEffect(() => {
@@ -148,38 +114,42 @@ export const NewBatchPanel = ({
       return
     }
     initialHandled.current = true
-    void handleFiles(initialFiles)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once for drop-opened modal
+    handleAcceptFiles(initialFiles)
   }, [initialFiles])
 
   const handleDrop = async (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault()
     setDragging(false)
     const files = await collectDroppedFiles(event.dataTransfer)
-    await handleFiles(files)
+    handleAcceptFiles(files)
   }
 
-  const handleFileInput = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? [])
-    resetFileInput(event.target)
+  const handleFilePickerOpen = () => {
+    onFilePickerOpen?.()
+  }
+
+  const handleFileInput = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.currentTarget.files ?? [])
+    onFilePickerSettled?.()
     if (files.length > 0) {
-      await handleFiles(files)
+      handleAcceptFiles(files)
     }
+    event.currentTarget.value = ""
   }
 
-  const removeClip = (name: string) => {
-    setUploads((current) => {
-      const next = current.filter((clip) => clip.name !== name)
+  const handleRemoveFile = (id: string) => {
+    setSelected((current) => {
+      const next = current.filter((file) => file.id !== id)
       if (next.length === 0) {
-        setError("Add at least one clip before running")
+        setErrors(["Add at least one file before running"])
       }
       return next
     })
   }
 
   const handleRun = async () => {
-    if (uploads.length === 0 || starting || transferredRef.current) {
-      setError("Parse a ZIP or folder with labels.csv before running")
+    if (selected.length === 0 || starting || transferredRef.current) {
+      setErrors(["Add a ZIP or files with labels.csv before running"])
       return
     }
     if (runInFlightRef.current) {
@@ -187,41 +157,54 @@ export const NewBatchPanel = ({
     }
     runInFlightRef.current = true
     setRunBusy(true)
-    setError(null)
+    setErrors([])
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
     try {
+      const parsed = await parseDroppedFiles(
+        selected.map((item) => item.file),
+        controller.signal,
+      )
+      if (controller.signal.aborted || transferredRef.current) {
+        return
+      }
+      if (parsed.clips.length === 0) {
+        const issues =
+          parsed.parseIssues.length > 0
+            ? parsed.parseIssues
+            : ["No valid clips to process"]
+        setErrors(issues)
+        runInFlightRef.current = false
+        setRunBusy(false)
+        return
+      }
+      const uploads = clipsToUploads(parsed)
       const batchId = await createDraft({
         name: defaultBatchName(uploads.length),
         method: selectedMethod,
-        parseIssues,
+        parseIssues: parsed.parseIssues,
         clips: uploads.map((clip) => ({
           name: clip.name,
           goldJson: clip.goldJson,
         })),
       })
       transferredRef.current = true
-      abortRef.current?.abort()
-      stashPendingUpload(batchId, parsedInputFromUploads(uploads, parseIssues))
+      stashPendingUpload(batchId, parsedInputFromUploads(uploads, parsed.parseIssues))
       onStarted?.(batchId)
     } catch (caught) {
+      if (isAbortError(caught) || transferredRef.current) {
+        return
+      }
       const message = caught instanceof Error ? caught.message : "Could not start the batch"
-      setError(message)
+      setErrors([message])
       toast.error(message)
       runInFlightRef.current = false
       setRunBusy(false)
     }
   }
 
-  const summary = useMemo(() => {
-    if (uploads.length === 0) {
-      return null
-    }
-    return {
-      clipCount: uploads.length,
-      labeled: uploads.filter((clip) => Boolean(clip.goldJson)).length,
-    }
-  }, [uploads])
-
-  const canRun = uploads.length > 0 && !parsing && !starting
+  const canRun = selected.length > 0 && !starting
 
   return (
     <div className="space-y-8">
@@ -242,72 +225,60 @@ export const NewBatchPanel = ({
       >
         <p className="text-sm font-medium">Drop a ZIP or folder</p>
         <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">
-          Include audio files and <code>labels.csv</code>. The CSV must have a{" "}
-          <code>name</code> column. Leave <code>result_json</code> empty on the hidden
-          set. Processing does not start until you press Run.
+          Include any supported audio (.wav, .mp3, .ogg, .m4a, .flac) and{" "}
+          <code>labels.csv</code>. The CSV <code>name</code> column must match those
+          filenames. Leave <code>result_json</code> empty on the hidden set. You can
+          add files in more than one selection; they are only read when you press Run.
         </p>
         <label className="mt-8 inline-flex">
           <input
             type="file"
             className="sr-only"
             multiple
+            accept=".zip,.csv,.wav,.mp3,.ogg,.m4a,.flac,application/zip"
             disabled={starting}
-            onChange={(event) => {
-              void handleFileInput(event)
-            }}
+            aria-label="Choose batch files"
+            onClick={handleFilePickerOpen}
+            onChange={handleFileInput}
           />
           <span className="inline-flex h-10 cursor-pointer items-center rounded-lg border border-border bg-background px-4 text-sm font-medium">
-            Choose files
+            {selected.length > 0 ? "Add files" : "Choose files"}
           </span>
         </label>
-        {parsing ? (
-          <p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
-            <LoaderCircleIcon className="size-4 animate-spin" aria-hidden />
-            Parsing files…
-          </p>
-        ) : null}
       </div>
 
-      {summary ? (
-        <div className="rounded-xl border border-border bg-card p-6">
+      {selected.length > 0 ? (
+        <div>
           <div className="flex items-baseline justify-between gap-4">
-            <p className="text-sm font-medium">Ready for upload</p>
+            <p className="text-sm font-medium">Selected files</p>
             <p className="text-sm text-muted-foreground">
-              {summary.clipCount} clip{summary.clipCount === 1 ? "" : "s"}
-              {summary.labeled > 0 ? ` · ${summary.labeled} labeled` : " · unlabeled"}
+              {selected.length} file{selected.length === 1 ? "" : "s"}
             </p>
           </div>
-          <ul className="mt-4 divide-y divide-border rounded-lg border border-border">
-            {uploads.map((clip) => (
+          <ul className="mt-3 divide-y divide-border">
+            {selected.map((item) => (
               <li
-                key={clip.name}
-                className="flex items-center gap-3 px-4 py-2.5 text-sm"
+                key={item.id}
+                className="flex items-center gap-3 py-2.5 text-sm"
               >
-                <span className="min-w-0 flex-1 truncate font-medium">{clip.name}</span>
-                {clip.goldJson ? (
-                  <span className="shrink-0 text-xs text-muted-foreground">labeled</span>
-                ) : null}
+                <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {formatFileSize(item.size)}
+                </span>
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon-sm"
                   className="shrink-0 text-muted-foreground hover:text-foreground"
-                  aria-label={`Remove ${clip.name}`}
+                  aria-label={`Remove ${item.name}`}
                   disabled={starting}
-                  onClick={() => removeClip(clip.name)}
+                  onClick={() => handleRemoveFile(item.id)}
                 >
                   <XIcon className="size-4" />
                 </Button>
               </li>
             ))}
           </ul>
-          {parseIssues.length > 0 ? (
-            <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-              {parseIssues.map((issue) => (
-                <li key={issue}>{issue}</li>
-              ))}
-            </ul>
-          ) : null}
         </div>
       ) : null}
 
@@ -322,10 +293,20 @@ export const NewBatchPanel = ({
         <MethodCards value={selectedMethod} onChange={setMethod} />
       </div>
 
-      {error ? (
+      {errors.length > 0 ? (
         <Alert variant="destructive">
           <AlertTitle>Cannot run yet</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>
+            {errors.length === 1 ? (
+              errors[0]
+            ) : (
+              <ul className="list-disc space-y-1 pl-4">
+                {errors.map((issue) => (
+                  <li key={issue}>{issue}</li>
+                ))}
+              </ul>
+            )}
+          </AlertDescription>
         </Alert>
       ) : null}
 
@@ -339,7 +320,14 @@ export const NewBatchPanel = ({
             void handleRun()
           }}
         >
-          Run
+          {starting ? (
+            <span className="inline-flex items-center gap-2">
+              <LoaderCircleIcon className="size-4 animate-spin" aria-hidden />
+              Starting…
+            </span>
+          ) : (
+            "Run"
+          )}
         </Button>
         {onDiscard ? (
           <Button

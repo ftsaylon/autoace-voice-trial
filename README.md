@@ -21,7 +21,7 @@ npm test
 npm run dev
 ```
 
-Open http://127.0.0.1:43123.
+Open the URL Next prints. It prefers http://127.0.0.1:43123 and uses the next free port if that one is taken.
 
 `npx convex dev` pushes functions, regenerates `convex/_generated`, and keeps the scheduler worker running. The Next app talks to `NEXT_PUBLIC_CONVEX_URL`.
 

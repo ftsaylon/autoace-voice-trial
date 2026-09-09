@@ -35,8 +35,23 @@ describe("parseManifestAndFiles", () => {
     ]);
     expect(parsed.clips.map((clip) => clip.name)).toEqual(["call_ok.wav"]);
     expect(parsed.parseIssues).toEqual([
-      "Missing audio files: call_missing.wav",
+      "labels.csv lists audio files that were not selected: call_missing.wav",
       "Audio files not listed in CSV: call_extra.wav",
+    ]);
+  });
+
+  it("reports missing names from the uploaded csv, not a fixed clip list", () => {
+    const parsed = parseManifestAndFiles([
+      {
+        name: "labels.csv",
+        bytes: new TextEncoder().encode(
+          "name,result_json\ncustom_a.m4a,\ncustom_b.flac,\n",
+        ),
+      },
+    ]);
+    expect(parsed.clips).toEqual([]);
+    expect(parsed.parseIssues).toEqual([
+      "labels.csv lists audio files that were not selected: custom_a.m4a, custom_b.flac",
     ]);
   });
 
@@ -76,6 +91,12 @@ describe("parseManifestAndFiles", () => {
 });
 
 describe("filesFromZip", () => {
+  it("rejects bytes that are not a zip archive", async () => {
+    await expect(filesFromZip(new Uint8Array([1, 2, 3, 4]))).rejects.toThrow(
+      "The selected file is not a valid ZIP archive",
+    )
+  })
+
   it("reads audio at the archive root", async () => {
     const zip = new JSZip();
     zip.file("labels.csv", "name,result_json\ncall_ok.wav,\n");

@@ -4,7 +4,7 @@ import {
   type IncomingFile,
   type ParsedBatchInput,
 } from "@/application/parse-batch"
-import { autoAceJsonString, fromAutoAceJson } from "@/domain"
+import { autoAceJsonString, fromAutoAceJson, MAX_BATCH_BYTES } from "@/domain"
 import { mediaTypeFor } from "@/lib/media-type"
 
 export type PreparedClip = {
@@ -31,27 +31,110 @@ const basename = (path: string): string => {
   return parts[parts.length - 1] ?? path
 }
 
-export const fileToIncoming = async (file: File): Promise<IncomingFile> => {
+const throwIfAborted = (signal?: AbortSignal): void => {
+  if (signal?.aborted) {
+    throw new DOMException("Aborted", "AbortError")
+  }
+}
+
+export const readFileBuffer = async (
+  file: File,
+  signal?: AbortSignal,
+): Promise<ArrayBuffer> => {
+  throwIfAborted(signal)
+  if (typeof FileReader === "undefined") {
+    const buffer = await file.arrayBuffer()
+    throwIfAborted(signal)
+    return buffer
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    const handleAbort = () => {
+      reader.abort()
+      reject(new DOMException("Aborted", "AbortError"))
+    }
+    if (signal?.aborted) {
+      handleAbort()
+      return
+    }
+    signal?.addEventListener("abort", handleAbort, { once: true })
+    const handleCleanup = () => {
+      signal?.removeEventListener("abort", handleAbort)
+    }
+    reader.onload = () => {
+      handleCleanup()
+      if (!(reader.result instanceof ArrayBuffer)) {
+        reject(new Error(`Could not read ${file.name}`))
+        return
+      }
+      resolve(reader.result)
+    }
+    reader.onerror = () => {
+      handleCleanup()
+      reject(reader.error ?? new Error(`Could not read ${file.name}`))
+    }
+    reader.onabort = () => {
+      handleCleanup()
+      reject(new DOMException("Aborted", "AbortError"))
+    }
+    reader.readAsArrayBuffer(file)
+  })
+}
+
+export const snapshotSelectedFiles = async (
+  files: File[],
+  signal?: AbortSignal,
+): Promise<File[]> => {
+  const snapshots: File[] = []
+  for (const file of files) {
+    const buffer = await readFileBuffer(file, signal)
+    snapshots.push(
+      new File([buffer], file.name, {
+        type: file.type,
+        lastModified: file.lastModified,
+      }),
+    )
+  }
+  return snapshots
+}
+
+export const fileToIncoming = async (
+  file: File,
+  signal?: AbortSignal,
+): Promise<IncomingFile> => {
+  const buffer = await readFileBuffer(file, signal)
   return {
     name: basename(file.name),
-    bytes: new Uint8Array(await file.arrayBuffer()),
+    bytes: new Uint8Array(buffer),
   }
 }
 
 export const incomingFromDropped = async (
   files: File[],
+  signal?: AbortSignal,
 ): Promise<IncomingFile[]> => {
+  throwIfAborted(signal)
   if (files.length === 1 && files[0]?.name.toLowerCase().endsWith(".zip")) {
-    const bytes = new Uint8Array(await files[0].arrayBuffer())
+    const bytes = new Uint8Array(await readFileBuffer(files[0], signal))
     return filesFromZip(bytes)
   }
-  return Promise.all(files.map((file) => fileToIncoming(file)))
+  const incoming: IncomingFile[] = []
+  for (const file of files) {
+    incoming.push(await fileToIncoming(file, signal))
+  }
+  return incoming
 }
 
 export const parseDroppedFiles = async (
   files: File[],
+  signal?: AbortSignal,
 ): Promise<ParsedBatchInput> => {
-  const incoming = await incomingFromDropped(files)
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0)
+  if (totalBytes > MAX_BATCH_BYTES) {
+    return { clips: [], parseIssues: ["Batch exceeds the 200 MB size cap"] }
+  }
+  const incoming = await incomingFromDropped(files, signal)
+  throwIfAborted(signal)
   return parseManifestAndFiles(incoming)
 }
 
@@ -252,4 +335,58 @@ export const prepareClipsForDraft = async (
 export const defaultBatchName = (fileCount: number): string => {
   const stamp = new Date().toISOString().slice(0, 16).replace("T", " ")
   return fileCount === 1 ? `Batch ${stamp}` : `Batch ${stamp}`
+}
+
+export type SelectedBatchFile = {
+  id: string
+  name: string
+  size: number
+  file: File
+}
+
+export const formatFileSize = (bytes: number): string => {
+  if (bytes < 1024) {
+    return `${bytes} B`
+  }
+  if (bytes < 1024 * 1024) {
+    return `${Math.round(bytes / 1024)} KB`
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+const isIgnoredSelectedName = (name: string): boolean => {
+  const base = basename(name)
+  return (
+    base.startsWith(".") ||
+    base === "Thumbs.db" ||
+    name.includes("__MACOSX/")
+  )
+}
+
+export const toSelectedBatchFiles = (files: File[]): SelectedBatchFile[] => {
+  const used = new Map<string, number>()
+  return files
+    .filter((file) => !isIgnoredSelectedName(file.webkitRelativePath || file.name))
+    .map((file) => {
+      const name = basename(file.name)
+      const next = (used.get(name) ?? 0) + 1
+      used.set(name, next)
+      return {
+        id: next === 1 ? name : `${name}#${next}`,
+        name,
+        size: file.size,
+        file,
+      }
+    })
+}
+
+export const mergeSelectedBatchFiles = (
+  current: SelectedBatchFile[],
+  incoming: File[],
+): SelectedBatchFile[] => {
+  const nextByName = new Map(current.map((item) => [item.name, item] as const))
+  for (const item of toSelectedBatchFiles(incoming)) {
+    nextByName.set(item.name, item)
+  }
+  return [...nextByName.values()]
 }

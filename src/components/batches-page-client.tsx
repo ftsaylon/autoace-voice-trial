@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { BatchList } from "@/components/batch-list"
 import { NewBatchPanel } from "@/components/new-batch-panel"
@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/dialog"
 import { collectDroppedFiles } from "@/lib/collect-dropped-files"
 
+const FILE_PICKER_DISMISS_GRACE_MS = 500
+
 export const BatchesPageClient = () => {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -23,6 +25,8 @@ export const BatchesPageClient = () => {
   const [runLocked, setRunLocked] = useState(false)
   const discardRef = useRef<(() => Promise<void>) | null>(null)
   const runLockedRef = useRef(false)
+  const filePickerActiveRef = useRef(false)
+  const suppressDismissUntilRef = useRef(0)
 
   const setBusy = useCallback((busy: boolean) => {
     runLockedRef.current = busy
@@ -40,8 +44,41 @@ export const BatchesPageClient = () => {
     setInitialFiles(null)
   }, [])
 
+  const shouldIgnoreDismiss = useCallback(() => {
+    return (
+      runLockedRef.current ||
+      filePickerActiveRef.current ||
+      Date.now() < suppressDismissUntilRef.current
+    )
+  }, [])
+
+  const handleFilePickerOpen = useCallback(() => {
+    filePickerActiveRef.current = true
+  }, [])
+
+  const handleFilePickerSettled = useCallback(() => {
+    filePickerActiveRef.current = false
+    suppressDismissUntilRef.current = Date.now() + FILE_PICKER_DISMISS_GRACE_MS
+  }, [])
+
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      if (!filePickerActiveRef.current) {
+        return
+      }
+      suppressDismissUntilRef.current = Date.now() + FILE_PICKER_DISMISS_GRACE_MS
+      window.setTimeout(() => {
+        filePickerActiveRef.current = false
+      }, FILE_PICKER_DISMISS_GRACE_MS)
+    }
+    window.addEventListener("focus", handleWindowFocus)
+    return () => {
+      window.removeEventListener("focus", handleWindowFocus)
+    }
+  }, [])
+
   const requestClose = useCallback(async () => {
-    if (runLockedRef.current) {
+    if (shouldIgnoreDismiss()) {
       return
     }
     if (discardRef.current) {
@@ -49,7 +86,7 @@ export const BatchesPageClient = () => {
       return
     }
     closeModal()
-  }, [closeModal])
+  }, [closeModal, shouldIgnoreDismiss])
 
   const handlePageDrop = async (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault()
@@ -118,17 +155,20 @@ export const BatchesPageClient = () => {
           className="flex max-h-[min(90vh,880px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
           showCloseButton={!runLocked}
           onEscapeKeyDown={(event) => {
-            if (runLocked) {
+            if (shouldIgnoreDismiss()) {
               event.preventDefault()
             }
           }}
+          onFocusOutside={(event) => {
+            event.preventDefault()
+          }}
           onPointerDownOutside={(event) => {
-            if (runLocked) {
+            if (shouldIgnoreDismiss()) {
               event.preventDefault()
             }
           }}
           onInteractOutside={(event) => {
-            if (runLocked) {
+            if (shouldIgnoreDismiss()) {
               event.preventDefault()
             }
           }}
@@ -137,7 +177,7 @@ export const BatchesPageClient = () => {
           <DialogHeader className="space-y-2 border-b px-6 py-5 pr-14">
             <DialogTitle className="text-lg">New batch</DialogTitle>
             <DialogDescription className="leading-relaxed">
-              Parse your files, pick a method, then Run. Upload and processing continue on
+              Choose files, pick a method, then Run. Upload and processing continue on
               the batch page.
             </DialogDescription>
           </DialogHeader>
@@ -147,6 +187,8 @@ export const BatchesPageClient = () => {
               initialFiles={initialFiles}
               discardRef={discardRef}
               onBusyChange={setBusy}
+              onFilePickerOpen={handleFilePickerOpen}
+              onFilePickerSettled={handleFilePickerSettled}
               onDiscard={closeModal}
               onStarted={(batchId) => {
                 closeModal()

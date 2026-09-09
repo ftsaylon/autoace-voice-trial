@@ -198,7 +198,9 @@ export function parseManifestAndFiles(files: IncomingFile[]): ParsedBatchInput {
 
   const extra = [...byName.keys()].filter((name) => !claimed.has(name));
   if (missing.length > 0) {
-    parseIssues.push(`Missing audio files: ${missing.join(", ")}`);
+    parseIssues.push(
+      `${csvFile.name} lists audio files that were not selected: ${missing.join(", ")}`,
+    );
   }
   if (extra.length > 0) {
     parseIssues.push(`Audio files not listed in CSV: ${extra.join(", ")}`);
@@ -218,13 +220,20 @@ export function parseManifestAndFiles(files: IncomingFile[]): ParsedBatchInput {
       ],
     };
   }
-  if (clips.length === 0) {
+  if (clips.length === 0 && parseIssues.length === 0) {
     parseIssues.push("No valid audio clips to process");
   }
   return { clips, parseIssues };
 }
 
+function isZipBytes(bytes: Uint8Array): boolean {
+  return bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4b;
+}
+
 export async function filesFromZip(bytes: Uint8Array): Promise<IncomingFile[]> {
+  if (!isZipBytes(bytes)) {
+    throw new Error("The selected file is not a valid ZIP archive");
+  }
   const zip = await JSZip.loadAsync(bytes);
   const files: IncomingFile[] = [];
   for (const [path, entry] of Object.entries(zip.files)) {

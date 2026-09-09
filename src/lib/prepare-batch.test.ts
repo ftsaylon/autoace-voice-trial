@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest"
 import {
   clipsToUploads,
+  formatFileSize,
+  parseDroppedFiles,
   preparedClipsFromUploads,
+  readFileBuffer,
+  snapshotSelectedFiles,
+  mergeSelectedBatchFiles,
+  toSelectedBatchFiles,
   storageIdsFromUploads,
   uploadClipsInParallel,
   uploadsBusy,
@@ -9,6 +15,7 @@ import {
   type ClipUpload,
 } from "@/lib/prepare-batch"
 import type { ParsedBatchInput } from "@/application/parse-batch"
+import { MAX_BATCH_BYTES } from "@/domain"
 
 const sampleParsed = (count: number): ParsedBatchInput => ({
   parseIssues: [],
@@ -17,6 +24,94 @@ const sampleParsed = (count: number): ParsedBatchInput => ({
     bytes: new Uint8Array([1, 2, 3, index]),
     gold: null,
   })),
+})
+
+describe("toSelectedBatchFiles", () => {
+  it("lists selected files without reading bytes and skips junk names", () => {
+    const csv = new File(["name,result_json\n"], "labels.csv")
+    const audio = new File([new Uint8Array([1, 2, 3])], "call_ok.wav")
+    const junk = new File(["x"], ".DS_Store")
+    const listed = toSelectedBatchFiles([csv, audio, junk])
+    expect(listed.map((item) => item.name)).toEqual(["labels.csv", "call_ok.wav"])
+    expect(listed[0]?.file).toBe(csv)
+    expect(listed[1]?.size).toBe(3)
+  })
+
+  it("keeps duplicate names distinguishable", () => {
+    const listed = toSelectedBatchFiles([
+      new File(["a"], "call.wav"),
+      new File(["b"], "call.wav"),
+    ])
+    expect(listed.map((item) => item.id)).toEqual(["call.wav", "call.wav#2"])
+  })
+})
+
+describe("mergeSelectedBatchFiles", () => {
+  it("keeps earlier files when more are added and replaces the same name", () => {
+    const current = toSelectedBatchFiles([
+      new File(["csv"], "labels.csv"),
+      new File(["old"], "a.ogg"),
+    ])
+    const merged = mergeSelectedBatchFiles(current, [
+      new File(["new-a"], "a.ogg"),
+      new File(["b"], "b.wav"),
+    ])
+    expect(merged.map((item) => item.name)).toEqual([
+      "labels.csv",
+      "a.ogg",
+      "b.wav",
+    ])
+    expect(merged.find((item) => item.name === "a.ogg")?.size).toBe(5)
+  })
+})
+
+describe("formatFileSize", () => {
+  it("formats bytes for the selected-file list", () => {
+    expect(formatFileSize(400)).toBe("400 B")
+    expect(formatFileSize(2048)).toBe("2 KB")
+    expect(formatFileSize(2.5 * 1024 * 1024)).toBe("2.5 MB")
+  })
+})
+
+describe("readFileBuffer", () => {
+  it("reads file bytes in the node test environment", async () => {
+    const file = new File([new Uint8Array([4, 5, 6])], "clip.wav")
+    const buffer = await readFileBuffer(file)
+    expect(new Uint8Array(buffer)).toEqual(new Uint8Array([4, 5, 6]))
+  })
+})
+
+describe("snapshotSelectedFiles", () => {
+  it("copies bytes so later input resets cannot revoke the payload", async () => {
+    const original = new File([new Uint8Array([9, 8, 7])], "labels.csv", {
+      type: "text/csv",
+    })
+    const [copy] = await snapshotSelectedFiles([original])
+    expect(copy).not.toBe(original)
+    expect(copy?.name).toBe("labels.csv")
+    expect(new Uint8Array(await copy!.arrayBuffer())).toEqual(new Uint8Array([9, 8, 7]))
+  })
+})
+
+describe("parseDroppedFiles", () => {
+  it("rejects oversized batches from file.size before reading bytes", async () => {
+    const huge = new File([new Uint8Array([1, 2, 3, 4])], "batch.zip")
+    Object.defineProperty(huge, "size", { value: MAX_BATCH_BYTES + 1 })
+    const parsed = await parseDroppedFiles([huge])
+    expect(parsed.clips).toEqual([])
+    expect(parsed.parseIssues).toEqual(["Batch exceeds the 200 MB size cap"])
+  })
+
+  it("stops reading when the parse is aborted", async () => {
+    const controller = new AbortController()
+    controller.abort()
+    await expect(
+      parseDroppedFiles(
+        [new File([new Uint8Array([1, 2, 3, 4])], "labels.csv")],
+        controller.signal,
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" })
+  })
 })
 
 describe("prepare-batch uploads", () => {
