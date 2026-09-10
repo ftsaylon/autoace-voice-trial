@@ -34,7 +34,7 @@ Gemini bills audio at about 32 tokens per second, or 1920 tokens per minute. Gem
 
 Audio leaves AutoAce infrastructure: Convex stores the bytes, Google receives windows for Gemini methods. Retention follows those providers' policies. Disclose that on evaluation.
 
-If `GOOGLE_GENERATIVE_AI_API_KEY` is missing on the Convex deployment, Gemini methods fail with `classifier_unavailable`. The dashboard still loads. Baseline and prosody still run.
+If `GOOGLE_GENERATIVE_AI_API_KEY` is missing on the Convex deployment, Gemini methods fail the run immediately with `classifier_unavailable`. `npm run dev:backend` copies a non-empty key from `.env.local` onto that deployment. The dashboard still loads. Baseline and prosody still run.
 
 ## Latency and concurrency
 

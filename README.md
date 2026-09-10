@@ -10,8 +10,9 @@ Audio leaves AutoAce infrastructure and is stored in **Convex** and sent to **Go
 
 ```bash
 cp env.example .env.local
+# add GOOGLE_GENERATIVE_AI_API_KEY to .env.local
 npm install
-npx convex dev
+npm run dev:backend
 ```
 
 In a second terminal:
@@ -25,7 +26,7 @@ Open the URL Next prints. It prefers http://127.0.0.1:43123 and uses the next fr
 
 `npx convex dev` pushes functions, regenerates `convex/_generated`, and keeps the scheduler worker running. The Next app talks to `NEXT_PUBLIC_CONVEX_URL`.
 
-Set `GOOGLE_GENERATIVE_AI_API_KEY` on the Convex deployment (`npx convex env set GOOGLE_GENERATIVE_AI_API_KEY`) before analyzing real calls. Without a key, fusion clips fail with `classifier_unavailable` instead of a fake prediction.
+Fusion, Lexical, and Gemini-only run inside Convex Node actions. They read the Gemini key from the **Convex deployment**, not from Next.js. Put `GOOGLE_GENERATIVE_AI_API_KEY` in `.env.local` and start the backend with `npm run dev:backend` so the key is synced (`npm run sync:convex-env` also works). You can still set it by hand with `npx convex env set GOOGLE_GENERATIVE_AI_API_KEY`. Without a key, Gemini runs fail immediately instead of inventing a prediction.
 
 ### Login
 

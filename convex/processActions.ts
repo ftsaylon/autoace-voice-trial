@@ -7,6 +7,7 @@ import { processClip, formatProcessStage } from "../src/application/process-clip
 import { classifierForMethod } from "../src/application/select-classifier"
 import { resolveMethod } from "../src/application/methods"
 import { formatAnalyzeError } from "../src/domain/errors"
+import { classifierIsConfigured, resolveGeminiApiKey } from "../src/adapters/gemini/gemini-classifier"
 import { FfmpegAcousticAnalyzer } from "../src/adapters/acoustic/ffmpeg-analyzer"
 import { autoAceJsonString } from "../src/domain"
 import { mediaTypeFor } from "../src/adapters/storage/memory"
@@ -40,22 +41,6 @@ export const processNext = internalAction({
       })
     }
 
-    const blob = await ctx.storage.get(claimed.storageId)
-    if (!blob) {
-      await failClip(
-        JSON.stringify({
-          tag: "decode_failed",
-          name: claimed.name,
-          cause: "Audio is missing from storage",
-        }),
-      )
-      await ctx.scheduler.runAfter(0, internal.processActions.processNext, {
-        batchId: args.batchId,
-      })
-      return null
-    }
-
-    const bytes = new Uint8Array(await blob.arrayBuffer())
     const method = resolveMethod(claimed.method)
     if (!method) {
       const error = {
@@ -77,8 +62,39 @@ export const processNext = internalAction({
       return null
     }
 
+    const apiKey = resolveGeminiApiKey()
+    if (method.needsGemini && !classifierIsConfigured(apiKey)) {
+      const error = { tag: "classifier_unavailable" as const }
+      await ctx.runMutation(internal.process.failRunUnavailable, {
+        runId: claimed.runId,
+        errorJson: JSON.stringify(error),
+        message: formatAnalyzeError(error),
+      })
+      await ctx.scheduler.runAfter(0, internal.processActions.processNext, {
+        batchId: args.batchId,
+      })
+      return null
+    }
+
+    const blob = await ctx.storage.get(claimed.storageId)
+    if (!blob) {
+      await failClip(
+        JSON.stringify({
+          tag: "decode_failed",
+          name: claimed.name,
+          cause: "Audio is missing from storage",
+        }),
+      )
+      await ctx.scheduler.runAfter(0, internal.processActions.processNext, {
+        batchId: args.batchId,
+      })
+      return null
+    }
+
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+
     const acoustic = new FfmpegAcousticAnalyzer()
-    const classifier = classifierForMethod(method.id, acoustic)
+    const classifier = classifierForMethod(method.id, acoustic, apiKey)
 
     const store: AudioStore = {
       async put() {

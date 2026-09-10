@@ -90,7 +90,7 @@ sequenceDiagram
 
 Per-clip isolation: one decode or classifier error marks that clip result `failed` and the worker continues. Retry failed requeues only those clip results on that run. **Run methods** always creates new runs — previous results stay.
 
-If ffmpeg cannot spawn in the Convex Node action, the clip fails with `decode_failed` and the log records the cause. Predictions are never invented.
+If ffmpeg cannot spawn in the Convex Node action, the clip fails with `decode_failed` and the log records the cause. If the Gemini key is missing, the worker fails every unfinished result on that run with `classifier_unavailable` and does not invent a prediction.
 
 ## Downloads
 

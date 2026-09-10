@@ -8,9 +8,11 @@ import {
   queuedRunsOldestFirst,
 } from "../src/application/run-policy"
 import { MAX_RUNNING_BATCHES } from "./lib/constants"
+import { formatStoredAnalyzeError } from "../src/domain/errors"
 import {
   activateRun,
   completeRunIfIdle,
+  failUnfinishedResults,
   listRunResults,
   listRuns,
   recountRun,
@@ -160,11 +162,39 @@ export const completeClip = internalMutation({
         level: args.ok ? "info" : "error",
         message: args.ok
           ? `${clip.name} succeeded${run ? ` (${run.method})` : ""}`
-          : `${clip.name} failed: ${args.errorJson ?? "unknown error"}`,
+          : `${clip.name} failed: ${formatStoredAnalyzeError(args.errorJson)}`,
         createdAt: now,
       })
     }
     return null
+  },
+})
+
+export const failRunUnavailable = internalMutation({
+  args: {
+    runId: v.id("runs"),
+    errorJson: v.string(),
+    message: v.string(),
+  },
+  returns: v.object({ failed: v.number() }),
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.runId)
+    if (!run) {
+      return { failed: 0 }
+    }
+    const failed = await failUnfinishedResults(ctx, args.runId, args.errorJson)
+    const batch = await ctx.db.get(run.batchId)
+    if (batch) {
+      await ctx.db.insert("logs", {
+        userId: batch.userId,
+        batchId: run.batchId,
+        runId: run._id,
+        level: "error",
+        message: args.message,
+        createdAt: Date.now(),
+      })
+    }
+    return { failed }
   },
 })
 

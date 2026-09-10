@@ -3,6 +3,7 @@ export {
   type AnalyzeError,
   type BatchParseIssue,
   formatAnalyzeError,
+  formatStoredAnalyzeError,
 } from "./errors";
 export {
   LONG_SILENCE_SEC,

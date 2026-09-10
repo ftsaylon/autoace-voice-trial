@@ -22,6 +22,7 @@ export {
 export const classifierForMethod = (
   method: MethodId,
   acoustic: AcousticAnalyzer,
+  apiKey?: string,
 ): SemanticClassifier => {
   if (method === "baseline") {
     return new AcousticBaselineClassifier(acoustic)
@@ -30,13 +31,14 @@ export const classifierForMethod = (
     return new ProsodyClassifier()
   }
   if (method === "lexical") {
-    return new GeminiClassifier({ prompt: LEXICAL_PROMPT })
+    return new GeminiClassifier({ prompt: LEXICAL_PROMPT, apiKey })
   }
   if (method === "gemini_only") {
     return new GeminiClassifier({
       prompt: GEMINI_ONLY_PROMPT,
       ownQualityAndSilence: true,
+      apiKey,
     })
   }
-  return new GeminiClassifier({ prompt: FUSION_PROMPT })
+  return new GeminiClassifier({ prompt: FUSION_PROMPT, apiKey })
 }

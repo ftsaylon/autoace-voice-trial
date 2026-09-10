@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "dev:backend": "convex dev",
+    "dev:backend": "tsx scripts/sync-convex-env.ts && convex dev",
+    "sync:convex-env": "tsx scripts/sync-convex-env.ts",
     "start": "next start --hostname 0.0.0.0 --port 43123",
     "lint": "eslint",
     "test": "vitest run",

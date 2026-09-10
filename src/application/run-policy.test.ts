@@ -6,6 +6,7 @@ import {
   pickRunningRun,
   processesOnCreate,
   queuedRunsOldestFirst,
+  unfinishedResults,
 } from "./run-policy"
 
 describe("run policy", () => {
@@ -64,5 +65,18 @@ describe("retryRun isolation", () => {
     ]
     expect(failedResultsForRun(results, "a")).toEqual([{ runId: "a", state: "failed" }])
     expect(failedResultsForRun(results, "b")).toEqual([{ runId: "b", state: "failed" }])
+  })
+})
+
+describe("unfinishedResults", () => {
+  it("selects queued, running, and uploading rows so a missing Gemini key can fail the run once", () => {
+    const results = [
+      { id: "a", state: "queued" },
+      { id: "b", state: "running" },
+      { id: "c", state: "uploading" },
+      { id: "d", state: "succeeded" },
+      { id: "e", state: "failed" },
+    ]
+    expect(unfinishedResults(results).map((row) => row.id)).toEqual(["a", "b", "c"])
   })
 })

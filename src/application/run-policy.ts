@@ -35,3 +35,8 @@ export const failedResultsForRun = <T extends { runId: string; state: string }>(
   results: T[],
   runId: string,
 ): T[] => results.filter((row) => row.runId === runId && row.state === "failed")
+
+const UNFINISHED_STATES = new Set(["queued", "running", "uploading"])
+
+export const unfinishedResults = <T extends { state: string }>(results: T[]): T[] =>
+  results.filter((row) => UNFINISHED_STATES.has(row.state))

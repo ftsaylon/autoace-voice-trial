@@ -1,5 +1,6 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 import type { Doc, Id } from "../_generated/dataModel"
+import { unfinishedResults } from "../../src/application/run-policy"
 import { modelForMethod, type MethodId } from "../../src/application/methods"
 
 type RunStatus = "queued" | "running" | "complete" | "failed"
@@ -255,10 +256,7 @@ export const completeRunIfIdle = async (
   run: Doc<"runs">,
 ): Promise<boolean> => {
   const results = await listRunResults(ctx, run._id)
-  const pending = results.some(
-    (row) => row.state === "queued" || row.state === "running" || row.state === "uploading",
-  )
-  if (pending) {
+  if (unfinishedResults(results).length > 0) {
     return false
   }
   const failedCount = results.filter((row) => row.state === "failed").length
@@ -285,6 +283,31 @@ export const completeRunIfIdle = async (
     })
   }
   return true
+}
+
+export const failUnfinishedResults = async (
+  ctx: MutationCtx,
+  runId: Id<"runs">,
+  errorJson: string,
+): Promise<number> => {
+  const results = await listRunResults(ctx, runId)
+  const now = Date.now()
+  let failed = 0
+  for (const row of unfinishedResults(results)) {
+    await ctx.db.patch(row._id, {
+      state: "failed",
+      stage: "Failed",
+      predictionJson: undefined,
+      errorJson,
+      finishedAt: now,
+    })
+    failed += 1
+  }
+  const run = await recountRun(ctx, runId)
+  if (run) {
+    await completeRunIfIdle(ctx, run)
+  }
+  return failed
 }
 
 export const activateRun = async (
