@@ -51,6 +51,9 @@ const methodStyle: Record<
 }
 
 const MODEL_LABELS: Record<string, string> = {
+  "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+  "gemini-3.5-flash-lite-lexical": "Gemini 3.5 Flash-Lite lexical",
+  "gemini-3.5-flash-lite-only": "Gemini 3.5 Flash-Lite only",
   "gemini-3.6-flash": "Gemini 3.6 Flash",
   "gemini-3.6-flash-lexical": "Gemini 3.6 Flash lexical",
   "gemini-3.6-flash-only": "Gemini 3.6 Flash only",

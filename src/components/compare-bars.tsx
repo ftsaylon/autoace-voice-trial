@@ -66,10 +66,10 @@ export const CompareBars = ({
     )
     return (
       <section className="rounded-xl border border-border bg-card p-5">
-        <h3 className="text-sm font-medium">Agreement across selected runs</h3>
+        <h3 className="text-sm font-medium">Agreement across runs</h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          Share of clips where every selected run matches on that field. No gold labels
-          on this batch.
+          Share of clips where every run matches on that field. No gold labels on this
+          batch.
         </p>
         <div className="mt-4 h-72">
           <ResponsiveContainer width="100%" height="100%">

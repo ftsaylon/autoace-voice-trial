@@ -42,14 +42,17 @@ export const clipsToJson = (clips: ExportableClip[]): string => {
   )
 }
 
-export const downloadTextFile = (filename: string, contents: string, type: string) => {
-  const blob = new Blob([contents], { type })
+export const downloadBlobFile = (filename: string, blob: Blob) => {
   const url = URL.createObjectURL(blob)
   const link = document.createElement("a")
   link.href = url
   link.download = filename
   link.click()
   URL.revokeObjectURL(url)
+}
+
+export const downloadTextFile = (filename: string, contents: string, type: string) => {
+  downloadBlobFile(filename, new Blob([contents], { type }))
 }
 
 export { autoAceJsonString }

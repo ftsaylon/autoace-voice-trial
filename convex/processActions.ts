@@ -1,7 +1,7 @@
 "use node"
 
 import { v } from "convex/values"
-import { internalAction } from "./_generated/server"
+import { env, internalAction } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { processClip, formatProcessStage } from "../src/application/process-clip"
 import { classifierForMethod } from "../src/application/select-classifier"
@@ -62,7 +62,9 @@ export const processNext = internalAction({
       return null
     }
 
-    const apiKey = resolveGeminiApiKey()
+    const apiKey = resolveGeminiApiKey(
+      env.GOOGLE_GENERATIVE_AI_API_KEY ?? env.GEMINI_API_KEY ?? env.GOOGLE_API_KEY,
+    )
     if (method.needsGemini && !classifierIsConfigured(apiKey)) {
       const error = { tag: "classifier_unavailable" as const }
       await ctx.runMutation(internal.process.failRunUnavailable, {
@@ -94,7 +96,7 @@ export const processNext = internalAction({
     const bytes = new Uint8Array(await blob.arrayBuffer())
 
     const acoustic = new FfmpegAcousticAnalyzer()
-    const classifier = classifierForMethod(method.id, acoustic, apiKey)
+    const classifier = classifierForMethod(method.id, acoustic, apiKey, env.GEMINI_MODEL)
 
     const store: AudioStore = {
       async put() {

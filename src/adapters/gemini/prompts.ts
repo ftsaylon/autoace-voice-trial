@@ -1,21 +1,32 @@
+/**
+ * Prompts quote AutoAce field definitions (assessment §2). Tone ladder and
+ * anti-confound rules are the written schema, not gold examples.
+ *
+ * Lexical follows AlloSat: linguistic content was the main contributor to
+ * call-center satisfaction (Deschamps-Berger et al., arXiv:2310.04481).
+ *
+ * Fusion context is DSP labels only (noise_family / overlap_evidence).
+ * SNR, RMS, and filenames stay out so the model cannot map loudness to
+ * frustration or clip identity to a label.
+ */
 import type { AcousticMeasurements } from "@/domain"
 
-export const TONE_LADDER = `emotional_tone is the primary emotion of the customer. Apply this ladder in order and stop at the first match:
+export const TONE_LADDER = `emotional_tone is the customer's primary stance across THIS whole clip, not the agent's, and not the most common local slice. Apply this ladder in order and stop at the first match:
 - distressed: crying, panic, overwhelmed, or otherwise emotionally escalated
-- upset: clearly angry, agitated, or strongly dissatisfied
+- upset: clearly angry, agitated, hostile, or strongly dissatisfied. Requires anger in the delivery, not only negative words
 - frustrated: annoyed, impatient, or dissatisfied without that anger
-- satisfied: pleased, relieved, appreciative, or clearly positive
-- neutral: no clear positive or negative emotion
+- satisfied: pleased, relieved, appreciative, a clearly positive close, or calm thanks / confirmation after resolution — even if the voice is not enthusiastic
+- neutral: informational Q&A with no clear positive or negative valence. Do not promote a calm complaint or wait-time talk to frustrated from words alone
 
-emotional_intensity: low (subtle), medium (clear and sustained), high (strong, escalated).`
+emotional_intensity: low (subtle), medium (clear and sustained), high (strong, escalated). If the customer is clearly angry or distressed, intensity is usually high.`
 
-export const NOISE_AND_OVERLAP = `background_noise_present: true only if meaningful non-speech sound is audible. Barely perceptible artifacts do not count.
+export const NOISE_AND_OVERLAP = `background_noise_present: true only if meaningful non-speech sound is audible. Barely perceptible artifacts do not count. Noise can be present while the recording itself is technically clear (static, TV, and chatter are events, not codec damage).
 
-background_noise_type: a short phrase for the dominant noise. Prefer one of: office chatter, TV, road noise, sharp static, keyboard typing, music, wind, mechanical. Empty string when no noise is present.
+background_noise_type: a short phrase for the dominant noise. Name what you hear. Do not default to office chatter. Use TV for television or a TV program. Use sharp static for electrical crackle, hiss, or pops. Other examples: road noise, keyboard typing, music, wind, mechanical. Empty string when no noise is present.
 
 background_noise_severity: none when no noise. Otherwise low (audible but does not interfere), medium (occasionally interferes), high (materially impairs the conversation).
 
-speaker_overlap_present: true if two or more speakers talk at the same time enough to affect understanding.
+speaker_overlap_present: true only if two or more speakers talk at the same time enough to affect understanding. Adjacent turns, latching, and backchannels are not overlap.
 
 confidence: 0 to 1 for the overall result.`
 
@@ -23,11 +34,11 @@ export const ANTI_CONFOUND_RULES = `Rules:
 - Do not infer frustration or distress solely from loudness.
 - Do not infer background noise solely from poor audio quality.
 - Judge the customer, not the agent.
-- If several emotions appear, pick the primary one.`
+- If several emotions appear, pick the primary one across the clip.`
 
 export const FUSION_PROMPT = `You analyze production call-center audio between a customer and an agent.
 
-Return structured fields for THIS clip only.
+Listen to the customer's words and delivery together. Return structured fields for THIS clip only.
 
 ${TONE_LADDER}
 
@@ -69,11 +80,13 @@ export const formatAcousticContext = (
   acoustic: AcousticMeasurements,
 ): string => {
   return [
-    "Measured acoustics (context only; do not infer tone from loudness or noise from quality):",
-    `- SNR: ${acoustic.snrDb.toFixed(1)} dB`,
-    `- clip fraction: ${acoustic.clipFraction.toFixed(4)}`,
-    `- longest silence: ${acoustic.longestSilenceSec.toFixed(2)} s`,
-    `- spectral flatness: ${acoustic.spectralFlatness.toFixed(3)}`,
+    "DSP residual labels (context only; do not infer tone from loudness or noise from quality):",
+    `- noise_family: ${acoustic.noiseFamily}`,
+    `- overlap_evidence: ${acoustic.overlapEvidence}`,
+    "If noise_family is uncertain, DSP did not find electrical hiss. Still report TV, chatter, music, or other audible non-speech if you hear it.",
+    "If noise_family is clean, only report noise when a distinct non-speech event is clearly audible. Do not invent office chatter.",
+    "If noise_family is static, name the residual as sharp static unless you clearly hear a different hiss/crackle phrase.",
+    "If overlap_evidence is none, adjacent turns are not overlap. True only if two voices are simultaneous.",
   ].join("\n")
 }
 

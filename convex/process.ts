@@ -1,7 +1,7 @@
 import { v } from "convex/values"
 import { internalMutation } from "./_generated/server"
 import { internal } from "./_generated/api"
-import { CLAIM_STALE_MS } from "../src/domain/constants"
+import { CLAIM_STALE_MS, MAX_CLIP_COUNT } from "../src/domain/constants"
 import {
   hasPendingRuns,
   pickRunningRun,
@@ -13,7 +13,6 @@ import {
   activateRun,
   completeRunIfIdle,
   failUnfinishedResults,
-  listRunResults,
   listRuns,
   recountRun,
   syncBatchRunMeta,
@@ -43,15 +42,24 @@ export const claimNext = internalMutation({
     const staleBefore = now - CLAIM_STALE_MS
     const runs = await listRuns(ctx, args.batchId)
 
-    const claimFromRun = async (run: typeof runs[number]) => {
-      const results = await listRunResults(ctx, run._id)
-      const next = results.find(
-        (row) =>
-          row.state === "queued" ||
-          (row.state === "running" &&
-            row.claimedAt !== undefined &&
-            row.claimedAt < staleBefore),
+    const claimFromRun = async (run: (typeof runs)[number]) => {
+      const running = await ctx.db
+        .query("clipResults")
+        .withIndex("by_run_and_state", (q) =>
+          q.eq("runId", run._id).eq("state", "running"),
+        )
+        .take(MAX_CLIP_COUNT)
+      const stale = running.find(
+        (row) => row.claimedAt !== undefined && row.claimedAt < staleBefore,
       )
+      const next =
+        stale ??
+        (await ctx.db
+          .query("clipResults")
+          .withIndex("by_run_and_state", (q) =>
+            q.eq("runId", run._id).eq("state", "queued"),
+          )
+          .first())
       if (!next) {
         return null
       }
@@ -272,11 +280,11 @@ export const startNextQueued = internalMutation({
     if (running.length >= MAX_RUNNING_BATCHES) {
       return null
     }
-    const queued = await ctx.db
+    const next = await ctx.db
       .query("batches")
       .withIndex("by_status", (q) => q.eq("status", "queued"))
-      .take(20)
-    const next = queued.sort((a, b) => a.createdAt - b.createdAt)[0]
+      .order("asc")
+      .first()
     if (!next) {
       return null
     }

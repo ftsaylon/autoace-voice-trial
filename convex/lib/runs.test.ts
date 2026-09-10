@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { overlayClip, pickViewingRun, uniqueMethodIds } from "./runs"
+import {
+  boundParseIssues,
+  overlayClip,
+  pickViewingRun,
+  requireMethodIds,
+  runHasFullResultSet,
+  uniqueMethodIds,
+} from "./runs"
 import type { Doc } from "../_generated/dataModel"
 
 describe("uniqueMethodIds", () => {
@@ -9,6 +16,46 @@ describe("uniqueMethodIds", () => {
       "lexical",
       "baseline",
     ])
+  })
+})
+
+describe("requireMethodIds", () => {
+  it("rejects an empty list", () => {
+    expect(() => requireMethodIds([])).toThrow("Pick at least one method")
+  })
+
+  it("dedupes before inserting", () => {
+    expect(requireMethodIds(["fusion", "fusion", "lexical"])).toEqual([
+      "fusion",
+      "lexical",
+    ])
+  })
+})
+
+describe("boundParseIssues", () => {
+  it("caps count and length", () => {
+    const issues = Array.from({ length: 50 }, (_, index) => "x".repeat(600) + String(index))
+    const bounded = boundParseIssues(issues)
+    expect(bounded).toHaveLength(40)
+    expect(bounded.every((issue) => issue.length === 500)).toBe(true)
+  })
+})
+
+describe("runHasFullResultSet", () => {
+  it("requires every clip result and no unfinished rows", () => {
+    expect(
+      runHasFullResultSet(
+        [{ state: "succeeded" }, { state: "failed" }],
+        2,
+      ),
+    ).toBe(true)
+    expect(runHasFullResultSet([{ state: "succeeded" }], 2)).toBe(false)
+    expect(
+      runHasFullResultSet(
+        [{ state: "succeeded" }, { state: "queued" }],
+        2,
+      ),
+    ).toBe(false)
   })
 })
 

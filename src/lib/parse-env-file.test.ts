@@ -6,13 +6,13 @@ describe("parseEnvFile", () => {
     const parsed = parseEnvFile(`
 # comment
 GOOGLE_GENERATIVE_AI_API_KEY="abc123"
-GEMINI_MODEL=gemini-3.6-flash
+GEMINI_MODEL=gemini-3.5-flash-lite
 EMPTY=
 WHITESPACE=   
 NEXT_PUBLIC_CONVEX_URL=http://127.0.0.1:3210
 `)
     expect(parsed.GOOGLE_GENERATIVE_AI_API_KEY).toBe("abc123")
-    expect(parsed.GEMINI_MODEL).toBe("gemini-3.6-flash")
+    expect(parsed.GEMINI_MODEL).toBe("gemini-3.5-flash-lite")
     expect(parsed.EMPTY).toBe("")
     expect(parsed.WHITESPACE).toBe("")
     expect(parsed.NEXT_PUBLIC_CONVEX_URL).toBe("http://127.0.0.1:3210")

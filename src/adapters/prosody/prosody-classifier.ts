@@ -6,6 +6,7 @@ import type { ClipPrediction } from "@/domain"
 import { mapProsodyToPrediction, measureProsody } from "./measure-prosody"
 
 export class ProsodyClassifier implements SemanticClassifier {
+  // eGeMAPS-inspired control (Eyben et al. 2016). Shares measurePcm with fusion.
   constructor(
     private readonly decode: (bytes: Uint8Array) => Promise<Float32Array> = decodePcm,
   ) {}

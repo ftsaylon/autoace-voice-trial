@@ -5,7 +5,7 @@ import { processBatchToCompletion, processNextClip } from "./process-clip";
 import { requeueBatch } from "./requeue-batch";
 import type { AcousticAnalyzer, SemanticClassifier } from "./ports";
 import { ok } from "@/domain/result";
-import { noNoise, presentNoise, type ClipPrediction } from "@/domain";
+import { acousticMeasurements, noNoise, presentNoise, type ClipPrediction } from "@/domain";
 
 function wavBytes(): Uint8Array {
   const header = Buffer.alloc(44);
@@ -41,16 +41,18 @@ const fakeClassifier: SemanticClassifier = {
   },
 };
 
+const fakeMeasured = acousticMeasurements({
+  durationSec: 12,
+  longestSilenceSec: 1,
+  snrDb: 24,
+  clipFraction: 0,
+  rms: 0.1,
+  spectralFlatness: 0.2,
+});
+
 const fakeAcoustic: AcousticAnalyzer = {
   async measure() {
-    return ok({
-      durationSec: 12,
-      longestSilenceSec: 1,
-      snrDb: 24,
-      clipFraction: 0,
-      rms: 0.1,
-      spectralFlatness: 0.2,
-    });
+    return ok(fakeMeasured);
   },
   async extractWindow(audio) {
     return ok(audio);
@@ -249,16 +251,7 @@ describe("ProcessClip", () => {
       classifier,
       batchId: batch.id,
     });
-    expect(seen).toEqual([
-      {
-        durationSec: 12,
-        longestSilenceSec: 1,
-        snrDb: 24,
-        clipFraction: 0,
-        rms: 0.1,
-        spectralFlatness: 0.2,
-      },
-    ]);
+    expect(seen).toEqual([fakeMeasured]);
   });
 });
 

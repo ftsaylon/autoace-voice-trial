@@ -40,8 +40,8 @@ export const CompareHeatmap = ({
           <h3 className="text-sm font-medium">Clip heatmap</h3>
           <p className="mt-1 text-xs text-muted-foreground">
             {labeled
-              ? "Green matches gold, red does not. Click a row to open that clip."
-              : "Color is the predicted value. A ring marks disagreement with the row majority."}
+              ? "Green matches gold, red does not. Open a clip from its name."
+              : "Color is the predicted value. A ring marks disagreement with the row majority. Open a clip from its name."}
           </p>
         </div>
         <label className="text-xs text-muted-foreground">
@@ -83,6 +83,7 @@ export const CompareHeatmap = ({
                   <button
                     type="button"
                     className="max-w-[12rem] truncate text-left hover:underline"
+                    aria-label={`Open ${row.name}`}
                     onClick={() => onRowClick(row.clipId)}
                   >
                     {row.name}

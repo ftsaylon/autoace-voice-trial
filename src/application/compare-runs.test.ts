@@ -7,7 +7,6 @@ import {
   confusionMatrixForRun,
   disagreementCounts,
   heatmapRows,
-  latestRunIdsPerMethod,
   scoresForRun,
 } from "./compare-runs"
 import type { CompareClipInput } from "./compare-runs"
@@ -43,17 +42,6 @@ const clip = (
       },
     ]),
   ),
-})
-
-describe("latestRunIdsPerMethod", () => {
-  it("keeps the newest run per method in created order", () => {
-    const ids = latestRunIdsPerMethod([
-      { id: "f1", method: "fusion", createdAt: 1 },
-      { id: "l1", method: "lexical", createdAt: 2 },
-      { id: "f2", method: "fusion", createdAt: 3 },
-    ])
-    expect(ids).toEqual(["l1", "f2"])
-  })
 })
 
 describe("scoresForRun", () => {

@@ -1,3 +1,9 @@
+/**
+ * eGeMAPS-inspired F0, speaking rate, and HNR (Eyben et al., IEEE TAC 2016;
+ * Boersma, IFA Proceedings 1993). Tone comes from pitch dynamics, not RMS.
+ * The openSMILE binary is not bundled. Overlap stays false here; fuse() may
+ * still apply stereo overlap for the method.
+ */
 import { measurePcm, SAMPLE_RATE } from "@/adapters/acoustic/ffmpeg-analyzer"
 import type { AcousticMeasurements, ClipPrediction } from "@/domain"
 import { noNoise, presentNoise } from "@/domain"
@@ -127,15 +133,14 @@ export function mapProsodyToPrediction(
     emotional_intensity = "medium"
   }
 
-  const noisy =
-    acoustic.spectralFlatness >= 0.28 || (acoustic.snrDb < 12 && acoustic.rms >= 0.04)
+  const noisy = acoustic.noiseFamily === "static"
 
   return {
     emotional_tone,
     emotional_intensity,
     background_noise: noisy
       ? presentNoise(
-          acoustic.spectralFlatness >= 0.35 ? "broadband noise" : "background noise",
+          acoustic.noiseFamily === "static" ? "broadband noise" : "background noise",
           acoustic.snrDb < 8 ? "medium" : "low",
         )
       : noNoise,

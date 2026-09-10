@@ -214,6 +214,8 @@ export const NewBatchPanel = ({
   return (
     <div className="space-y-8">
       <div
+        role="region"
+        aria-label="Drop a ZIP or folder of audio files with labels.csv, or use Choose files"
         onDragOver={(event) => {
           event.preventDefault()
           setDragging(true)

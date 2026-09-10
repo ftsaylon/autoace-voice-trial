@@ -26,17 +26,24 @@ import {
 
 export { classifierIsConfigured, resolveGeminiApiKey } from "./gemini-env";
 
-export const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
+export const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
 
-export const resolveGeminiModel = (): string => {
-  const override = readEnv("GEMINI_MODEL");
-  if (!override) {
+export const resolveGeminiModel = (override?: string): string => {
+  const fromOverride = override?.trim();
+  if (fromOverride) {
+    return fromOverride.replace(/^models\//, "");
+  }
+  const fromEnv = readEnv("GEMINI_MODEL");
+  if (!fromEnv) {
     return DEFAULT_GEMINI_MODEL;
   }
-  return override.replace(/^models\//, "");
+  return fromEnv.replace(/^models\//, "");
 };
 
-export const CLASSIFIER_PROMPT = FUSION_PROMPT;
+/** Generic name so Gemini never sees call_*.ogg or window slice ids. */
+export const GEMINI_AUDIO_FILENAME = "clip.wav"
+
+export const CLASSIFIER_PROMPT = FUSION_PROMPT
 
 const fullClassifierSchema = semanticClassifierSchema.extend({
   audio_quality: z.enum(AUDIO_QUALITIES),
@@ -47,6 +54,7 @@ export type GeminiClassifierOptions = {
   prompt: string;
   ownQualityAndSilence?: boolean;
   apiKey?: string;
+  model?: string;
 };
 
 export function toPrediction(
@@ -116,7 +124,7 @@ export class GeminiClassifier implements SemanticClassifier {
     const ownQuality = this.options.ownQualityAndSilence === true;
     try {
       const result = await generateText({
-        model: google(resolveGeminiModel()),
+        model: google(resolveGeminiModel(this.options.model)),
         output: Output.object({
           schema: ownQuality ? fullClassifierSchema : semanticClassifierSchema,
         }),
@@ -146,7 +154,7 @@ export class GeminiClassifier implements SemanticClassifier {
                 type: "file",
                 data: input.audio.bytes,
                 mediaType: input.audio.mediaType,
-                filename: input.audio.name,
+                filename: GEMINI_AUDIO_FILENAME,
               },
             ],
           },

@@ -60,6 +60,7 @@ export default defineSchema({
   })
     .index("by_user", ["userId"])
     .index("by_user_and_created", ["userId", "createdAt"])
+    .index("by_userId_and_status_and_createdAt", ["userId", "status", "createdAt"])
     .index("by_status", ["status"]),
   clips: defineTable({
     batchId: v.id("batches"),

@@ -13,6 +13,9 @@ export {
   MAX_CLIP_BYTES,
   MAX_BATCH_BYTES,
   MAX_CLIP_COUNT,
+  MAX_PARSE_ISSUES,
+  MAX_PARSE_ISSUE_LENGTH,
+  MAX_RUNS_PER_BATCH,
   SUPPORTED_AUDIO_EXTENSIONS,
   CLAIM_STALE_MS,
 } from "./constants";
@@ -24,6 +27,7 @@ export {
   semanticClassifierSchema,
   noNoise,
   presentNoise,
+  acousticMeasurements,
   type EmotionalTone,
   type Intensity,
   type AudioQuality,
@@ -31,6 +35,8 @@ export {
   type BackgroundNoise,
   type ClipPrediction,
   type AcousticMeasurements,
+  type NoiseFamily,
+  type OverlapEvidence,
   type WindowPrediction,
   type SemanticClassifierOutput,
 } from "./prediction";
@@ -41,7 +47,7 @@ export {
   type AutoAceJson,
   type CodecError,
 } from "./codec";
-export { fuse, qualityFromAcoustic } from "./fusion";
+export { fuse, qualityFromAcoustic, fuseNoise, fuseOverlap, fuseIntensity } from "./fusion";
 export { aggregateWindows, windowBounds } from "./aggregate";
 export {
   derivedBatchStatus,

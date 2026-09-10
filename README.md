@@ -2,7 +2,7 @@
 
 Hosted operator dashboard for classifying customer emotional tone and background noise in production call audio. AutoAce can log in, create a batch from a ZIP or folder, pick a method, run concurrent jobs, watch live clip logs, and download schema-faithful CSV/JSON.
 
-Production inference uses Gemini 3.6 Flash with constrained decoding, fused with ffmpeg acoustics. Gold `result_json` is used only for scoring. It never enters the model.
+Production inference uses Gemini 3.5 Flash-Lite with constrained decoding, fused with ffmpeg acoustics. Gold `result_json` is used only for scoring. It never enters the model.
 
 Audio leaves AutoAce infrastructure and is stored in **Convex** and sent to **Google Gemini**.
 
@@ -59,7 +59,7 @@ To compare methods, turn on **Compare methods** before Run, or open a finished b
 
 See [docs/GLOSSARY.md](docs/GLOSSARY.md) for the words method, classifier, and model. See [docs/METHODS.md](docs/METHODS.md) for field ownership and cost.
 
-- `fusion` — Gemini 3.6 Flash plus acoustic fusion. Production. Use this for hidden-set scoring.
+- `fusion` — Gemini 3.5 Flash-Lite plus acoustic fusion. Production. Use this for hidden-set scoring.
 - `baseline` — DSP rules from RMS, SNR, and flatness. Naive control.
 - `prosody` — F0, speaking rate, and HNR rules. Literature DSP control.
 - `lexical` — Gemini labels tone from the customer's words. Experiment.

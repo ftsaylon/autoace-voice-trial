@@ -9,7 +9,7 @@ flowchart LR
   Conv[Convex DB and file storage]
   Sched[Scheduler per batch]
   Act[Node action ProcessClip]
-  Gem[Gemini 3.6 Flash]
+  Gem[Gemini 3.5 Flash-Lite]
   Ff[ffmpeg acoustics]
 
   UI --> Auth
@@ -69,8 +69,8 @@ sequenceDiagram
   UI->>Convex: createDraft, start
   Convex->>Worker: scheduler.runAfter processNext
   loop Each queued clip
-    Worker->>Worker: ffmpeg decode, windows
-    Worker->>Gemini: classify window when the method needs Gemini
+    Worker->>Worker: ffmpeg stereo decode, acoustics, windows
+    Worker->>Gemini: classify clip or window as clip.wav when the method needs Gemini
     Worker->>Convex: stage logs, complete clip
     Worker->>Worker: schedule next clip
   end

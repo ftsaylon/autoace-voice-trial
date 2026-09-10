@@ -6,6 +6,8 @@ export const METHOD_IDS = [
   "gemini_only",
 ] as const
 
+export const MAX_METHODS_PER_START = METHOD_IDS.length
+
 export type MethodId = (typeof METHOD_IDS)[number]
 export type AnalysisMethod = MethodId
 export type MethodRole = "production" | "control" | "experiment"
@@ -28,12 +30,12 @@ export const METHODS: Record<MethodId, MethodDefinition> = {
     id: "fusion",
     label: "Fusion",
     role: "production",
-    model: "gemini-3.6-flash",
+    model: "gemini-3.5-flash-lite",
     fuseQualityAndSilence: true,
     needsGemini: true,
-    costUsdPerMinute: 0.0029,
+    costUsdPerMinute: 0.0006,
     description:
-      "Gemini 3.6 Flash classifies tone, intensity, noise, and overlap. Acoustics own silence and quality. Use this for the hidden set.",
+      "Gemini 3.5 Flash-Lite classifies tone, intensity, noise, and overlap. DSP owns silence, quality, clean/static residual gates, and stereo overlap. Use this for the hidden set.",
   },
   baseline: {
     id: "baseline",
@@ -44,18 +46,18 @@ export const METHODS: Record<MethodId, MethodDefinition> = {
     needsGemini: false,
     costUsdPerMinute: 0,
     description:
-      "DSP-only rules from SNR, RMS, clipping, and spectral flatness. No Gemini call. Required naive control, not for hidden-set scoring.",
+      "Naive RMS/SNR tone map (the control the spec asked for). Shared extractor supplies SFM, modulation, and stereo. Not for hidden-set scoring.",
   },
   lexical: {
     id: "lexical",
     label: "Lexical",
     role: "experiment",
-    model: "gemini-3.6-flash-lexical",
+    model: "gemini-3.5-flash-lite-lexical",
     fuseQualityAndSilence: true,
     needsGemini: true,
-    costUsdPerMinute: 0.0029,
+    costUsdPerMinute: 0.0006,
     description:
-      "Gemini transcribes the customer, then labels tone and intensity from the words. Acoustics still own silence and quality.",
+      "Gemini transcribes the customer, then labels tone and intensity from those words (AlloSat). Acoustics still own silence, quality, and DSP noise/overlap gates.",
   },
   prosody: {
     id: "prosody",
@@ -66,16 +68,16 @@ export const METHODS: Record<MethodId, MethodDefinition> = {
     needsGemini: false,
     costUsdPerMinute: 0,
     description:
-      "eGeMAPS-inspired F0, speaking rate, and HNR rules. Tone comes from pitch dynamics, not loudness. No Gemini call.",
+      "eGeMAPS-inspired F0, speaking rate, and HNR (Eyben 2016; Boersma 1993). Tone from pitch dynamics, not loudness. No Gemini call.",
   },
   gemini_only: {
     id: "gemini_only",
     label: "Gemini only",
     role: "experiment",
-    model: "gemini-3.6-flash-only",
+    model: "gemini-3.5-flash-lite-only",
     fuseQualityAndSilence: false,
     needsGemini: true,
-    costUsdPerMinute: 0.0029,
+    costUsdPerMinute: 0.0006,
     description:
       "Gemini owns every field, including quality and silence. Skips acoustic fusion so you can A/B the DSP overrides.",
   },

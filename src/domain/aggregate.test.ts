@@ -6,6 +6,7 @@ function window(
   startSec: number,
   tone: WindowPrediction["emotional_tone"],
   intensity: WindowPrediction["emotional_intensity"],
+  confidence = 0.7,
 ): WindowPrediction {
   return {
     startSec,
@@ -16,21 +17,21 @@ function window(
     audio_quality: "clear",
     speaker_overlap_present: false,
     long_silence_present: false,
-    confidence: 0.7,
+    confidence,
   };
 }
 
 describe("windowBounds", () => {
-  it("returns a single window for clips at or under 30s", () => {
-    expect(windowBounds(30)).toEqual([{ startSec: 0, endSec: 30 }]);
+  it("returns a single window for clips at or under 240s", () => {
+    expect(windowBounds(240)).toEqual([{ startSec: 0, endSec: 240 }]);
   });
 
-  it("splits long clips into 20s windows with 5s overlap", () => {
-    expect(windowBounds(50)).toEqual([
-      { startSec: 0, endSec: 20 },
-      { startSec: 15, endSec: 35 },
-      { startSec: 30, endSec: 50 },
-    ]);
+  it("splits clips longer than 240s into non-overlapping 20s windows", () => {
+    const bounds = windowBounds(260);
+    expect(bounds[0]).toEqual({ startSec: 0, endSec: 20 });
+    expect(bounds[bounds.length - 1]).toEqual({ startSec: 240, endSec: 260 });
+    expect(bounds).toHaveLength(13);
+    expect(bounds[1]).toEqual({ startSec: 20, endSec: 40 });
   });
 });
 
@@ -46,12 +47,20 @@ describe("aggregateWindows", () => {
     expect(prediction.confidence).toBeCloseTo(2 / 3);
   });
 
-  it("breaks a non-low intensity tie toward the more severe tone", () => {
+  it("breaks a tone tie toward higher window confidence, not severity", () => {
     const prediction = aggregateWindows([
-      window(0, "frustrated", "medium"),
-      window(15, "upset", "medium"),
+      window(0, "frustrated", "medium", 0.4),
+      window(15, "upset", "medium", 0.9),
     ]);
     expect(prediction.emotional_tone).toBe("upset");
+  });
+
+  it("uses enum order when confidence is tied instead of tone severity", () => {
+    const prediction = aggregateWindows([
+      window(0, "frustrated", "medium", 0.7),
+      window(15, "upset", "medium", 0.7),
+    ]);
+    expect(prediction.emotional_tone).toBe("frustrated");
   });
 
   it("prefers noise type from the highest-severity noisy window", () => {
@@ -70,7 +79,22 @@ describe("aggregateWindows", () => {
     expect(prediction.background_noise).toEqual(
       presentNoise("sharp static", "medium"),
     );
-    expect(prediction.speaker_overlap_present).toBe(true);
+    expect(prediction.speaker_overlap_present).toBe(false);
+  });
+
+  it("requires a majority of windows for overlap", () => {
+    const minority = aggregateWindows([
+      { ...window(0, "neutral", "low"), speaker_overlap_present: true },
+      window(20, "neutral", "low"),
+      window(40, "neutral", "low"),
+    ]);
+    expect(minority.speaker_overlap_present).toBe(false);
+    const majority = aggregateWindows([
+      { ...window(0, "neutral", "low"), speaker_overlap_present: true },
+      { ...window(20, "neutral", "low"), speaker_overlap_present: true },
+      window(40, "neutral", "low"),
+    ]);
+    expect(majority.speaker_overlap_present).toBe(true);
   });
 
   it("keeps the most impaired window quality", () => {
@@ -86,4 +110,3 @@ describe("aggregateWindows", () => {
     expect(prediction.long_silence_present).toBe(true);
   });
 });
-

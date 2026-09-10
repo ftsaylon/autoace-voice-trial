@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useMemo, useState } from "react"
-import { useConvexAuth, useMutation, useQuery } from "convex/react"
+import { useConvex, useConvexAuth, useMutation, useQuery } from "convex/react"
 import { toast } from "sonner"
 import { api } from "@convex/_generated/api"
 import type { Id } from "@convex/_generated/dataModel"
@@ -20,7 +20,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatAnalyzeError, type AnalyzeError } from "@/domain"
 import {
   DIFF_FIELDS,
@@ -30,9 +29,8 @@ import {
   parsePredictionJson,
   scoresFromClips,
 } from "@/lib/clip-view"
-import { clipsToCsv, clipsToJson, downloadTextFile } from "@/lib/export-clips"
 import { formatDuration, formatF1, formatPercent } from "@/lib/format-time"
-import { labelRuns } from "@/lib/run-labels"
+import { downloadBatchZip } from "@/lib/download-batch-zip"
 import { useBatchUpload } from "@/hooks/use-batch-upload"
 import { METHOD_IDS, METHODS, type AnalysisMethod, type MethodId } from "@/application/methods"
 import { cn } from "@/lib/utils"
@@ -48,15 +46,13 @@ const errorLabel = (errorJson?: string): string => {
   }
 }
 
-export const BatchDetail = ({ batchId }: { batchId: string }) => {
+export const BatchDetail = ({ batchId }: { batchId: Id<"batches"> }) => {
   const { isAuthenticated } = useConvexAuth()
-  const id = batchId as Id<"batches">
-  const [runId, setRunId] = useState<Id<"runs"> | null>(null)
+  const convex = useConvex()
+  const id = batchId
   const detail = useQuery(
     api.batches.get,
-    isAuthenticated
-      ? { batchId: id, runId: runId ?? undefined }
-      : "skip",
+    isAuthenticated ? { batchId: id } : "skip",
   )
   const logs = useQuery(
     api.logs.listForUser,
@@ -65,13 +61,12 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
   const setMethod = useMutation(api.batches.setMethod)
   const start = useMutation(api.batches.start)
   const startRuns = useMutation(api.batches.startRuns)
-  const retryRun = useMutation(api.batches.retryRun)
   const retry = useMutation(api.batches.retry)
   const [method, setLocalMethod] = useState<AnalysisMethod | null>(null)
   const [pending, setPending] = useState(false)
+  const [downloading, setDownloading] = useState(false)
   const [runMethodsOpen, setRunMethodsOpen] = useState(false)
   const [runMethods, setRunMethods] = useState<MethodId[]>(["fusion"])
-  const [tab, setTab] = useState("results")
   const [focusClipId, setFocusClipId] = useState<string | null>(null)
   const {
     isUploading,
@@ -86,10 +81,6 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
     abandonUpload,
   } = useBatchUpload(batchId, detail)
 
-  const scores = useMemo(
-    () => (detail ? scoresFromClips(detail.clips) : null),
-    [detail],
-  )
   const chronologicalLogs = useMemo(
     () => (logs ? [...logs].reverse() : []),
     [logs],
@@ -113,13 +104,12 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
   }
 
   const { batch, clips, runs, viewingRun } = detail
-  const labeledRuns = labelRuns(runs)
   const selectedMethod = method ?? batch.method
   const isDraft = batch.status === "draft"
   const isUploadingBatch =
     batch.status === "uploading" && (isUploading || uploadWaitingRemote)
   const canAct = batch.status === "complete" || batch.status === "failed"
-  const viewingFailed = viewingRun?.failedCount ?? batch.failedCount
+  const viewingFailed = batch.failedCount
   const uploadLabel = progress
     ? uploadWaitingRemote && !isUploading
       ? `Waiting for upload ${progress.done}/${progress.total}`
@@ -132,23 +122,18 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
   const completedRunCount = runs.filter(
     (run) => run.status === "complete" || run.status === "failed",
   ).length
+  const showMultiRunResults = completedRunCount >= 2
   const methodIds = batch.methodIds ?? [batch.method]
-  const downloadName =
-    (batch.runCount ?? runs.length) > 1 && viewingRun
-      ? `${batch.name}-${viewingRun.method}`
-      : batch.name
 
-  const handleDownload = (format: "csv" | "json") => {
-    const payload = clips.map((clip) => ({
-      name: clip.name,
-      predictionJson: clip.predictionJson,
-      errorJson: clip.errorJson,
-    }))
-    if (format === "csv") {
-      downloadTextFile(`${downloadName}.csv`, clipsToCsv(payload), "text/csv")
-      return
+  const handleDownloadZip = async () => {
+    setDownloading(true)
+    try {
+      await downloadBatchZip(convex, id)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Download failed")
+    } finally {
+      setDownloading(false)
     }
-    downloadTextFile(`${downloadName}.json`, clipsToJson(payload), "application/json")
   }
 
   const handleRun = async () => {
@@ -171,15 +156,6 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
   const handleRetryFailed = async () => {
     setPending(true)
     try {
-      if (viewingRun) {
-        const result = await retryRun({ runId: viewingRun._id })
-        if (result.requeued === 0) {
-          toast.message("Nothing to retry")
-          return
-        }
-        toast.message(`Requeued ${result.requeued} failed clips`)
-        return
-      }
       const result = await retry({ batchId: id, scope: "failed" })
       if (result.requeued === 0) {
         toast.message("Nothing to retry")
@@ -198,8 +174,6 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
     try {
       const result = await startRuns({ batchId: id, methods: runMethods })
       setRunMethodsOpen(false)
-      setTab("results")
-      setRunId(null)
       if (result.reason === "queued") {
         toast.message("Queued until another batch finishes")
       } else if (result.reason === "already_running") {
@@ -243,49 +217,27 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
             {queuedRunCount > 0 ? ` · ${queuedRunCount} queued` : ""}
             {` · ${formatDuration(batch.startedAt, batch.completedAt)}`}
           </p>
-          {labeledRuns.length > 0 ? (
-            <div className="flex flex-wrap gap-2 pt-1">
-              {labeledRuns.map((run) => {
-                const active = (runId ?? viewingRun?._id) === run.id
-                const status = runs.find((row) => row._id === run.id)?.status
-                return (
-                  <button
-                    key={run.id}
-                    type="button"
-                    onClick={() => setRunId(run.id as Id<"runs">)}
-                    className={cn(
-                      "rounded-full border px-3 py-1 text-xs",
-                      active
-                        ? "border-foreground bg-foreground text-background"
-                        : "border-border text-muted-foreground hover:border-foreground/40",
-                    )}
-                  >
-                    {run.label}
-                    {status === "running" ? " · running" : ""}
-                    {status === "queued" ? " · queued" : ""}
-                  </button>
-                )
-              })}
-            </div>
+          {runs.length > 1 ? (
+            <p className="text-xs text-muted-foreground">
+              {runs.length} runs across {methodIds.length} method
+              {methodIds.length === 1 ? "" : "s"}
+            </p>
           ) : null}
         </div>
         <div className="flex flex-wrap gap-3">
-          <Button
-            type="button"
-            variant="outline"
-            size="lg"
-            onClick={() => handleDownload("csv")}
-          >
-            Download CSV
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="lg"
-            onClick={() => handleDownload("json")}
-          >
-            Download JSON
-          </Button>
+          {canAct ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              disabled={downloading}
+              onClick={() => {
+                void handleDownloadZip()
+              }}
+            >
+              {downloading ? "Preparing…" : "Download ZIP"}
+            </Button>
+          ) : null}
           {canAct && viewingFailed > 0 ? (
             <Button
               type="button"
@@ -446,37 +398,37 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
         </details>
       </section>
 
-      {runs.length > 0 ? (
-        <Tabs value={tab} onValueChange={setTab}>
-          <TabsList>
-            <TabsTrigger value="results">Results</TabsTrigger>
-            {completedRunCount >= 2 ? (
-              <TabsTrigger value="compare">Compare</TabsTrigger>
-            ) : null}
-          </TabsList>
-          <TabsContent value="results" className="mt-6 space-y-8">
-            <ResultsBody
-              clips={clips}
-              scores={scores}
-              focusClipId={focusClipId}
-            />
-          </TabsContent>
-          {completedRunCount >= 2 ? (
-            <TabsContent value="compare" className="mt-6">
-              <BatchCompare
-                batchName={batch.name}
-                clips={clips}
-                runs={runs}
-                results={detail.allResults}
-                onOpenClip={(clipId) => {
-                  setFocusClipId(clipId)
-                }}
-              />
-            </TabsContent>
+      {showMultiRunResults ? (
+        <div className="space-y-6">
+          {runningRun || queuedRunCount > 0 ? (
+            <Alert>
+              <AlertTitle>More runs in progress</AlertTitle>
+              <AlertDescription>
+                {runningRun
+                  ? `${METHODS[runningRun.method].label} is processing now.`
+                  : null}
+                {queuedRunCount > 0
+                  ? ` ${queuedRunCount} method${queuedRunCount === 1 ? "" : "s"} queued.`
+                  : null}{" "}
+                Finished runs are shown below.
+              </AlertDescription>
+            </Alert>
           ) : null}
-        </Tabs>
+          <BatchCompare
+            batchId={id}
+            clips={clips}
+            runs={runs}
+            onOpenClip={(clipId) => {
+              setFocusClipId(clipId)
+            }}
+          />
+        </div>
       ) : (
-        <ResultsBody clips={clips} scores={scores} focusClipId={focusClipId} />
+        <ResultsBody
+          clips={clips}
+          scores={scoresFromClips(clips)}
+          focusClipId={focusClipId}
+        />
       )}
 
       <section className="rounded-xl border border-border bg-card">
@@ -488,17 +440,11 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
             <p className="text-zinc-500">No log lines yet.</p>
           ) : (
             chronologicalLogs.map((row) => {
-              const dim =
-                viewingRun && row.runId && row.runId !== viewingRun._id
               return (
                 <p
                   key={row._id}
                   className={
-                    row.level === "error"
-                      ? "text-red-400"
-                      : dim
-                        ? "text-zinc-500"
-                        : "text-zinc-200"
+                    row.level === "error" ? "text-red-400" : "text-zinc-200"
                   }
                 >
                   {new Date(row.createdAt).toISOString().slice(11, 19)} {row.message}

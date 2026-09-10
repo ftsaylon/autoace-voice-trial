@@ -18,15 +18,15 @@ A classifier is one implementation of `SemanticClassifier`. It returns tone, int
 
 ## Model
 
-A model is the backend label stored on the batch as `model`. Examples are `gemini-3.6-flash` and `acoustic-baseline`. It is display metadata. It is not the method id.
+A model is the backend label stored on the batch as `model`. Examples are `gemini-3.5-flash-lite` and `acoustic-baseline`. It is display metadata. It is not the method id.
 
 ## Feature extractor
 
-The feature extractor is the ffmpeg path in `FfmpegAcousticAnalyzer`. It measures duration, RMS, SNR, clipping, spectral flatness, and longest silence. It is not a classifier.
+The feature extractor is `FfmpegAcousticAnalyzer` plus `measureStereo` in `src/adapters/acoustic/measure-acoustics.ts`. It decodes stereo 16 kHz PCM, then measures duration, RMS, energy SNR, WADA-SNR, clipping, frame spectral flatness, unvoiced Hammarberg/alpha, 2–8 Hz modulation, HNR / harmonic energy ratio, unvoiced ZCR, F0 range, channel correlation, and longest silence. Those numbers become `noiseFamily` and `overlapEvidence`. It is not a classifier. Citations live in `docs/METHODS.md`.
 
 ## Late fusion
 
-Late fusion combines outputs after each subsystem has already decided. In this repo, `fuse()` in `src/domain/fusion.ts` is late fusion for `audio_quality` and `long_silence_present` only. The method named `fusion` uses that function. The function also runs for `baseline`, `lexical`, and `prosody`. The method `gemini_only` skips it.
+Late fusion combines outputs after each subsystem has already decided. In this repo, `fuse()` in `src/domain/fusion.ts` writes `audio_quality` and `long_silence_present` from DSP, gates noise with the DSP family, may set stereo overlap, and may floor intensity. It never changes `emotional_tone`. The method named `fusion` uses that function. The function also runs for `baseline`, `lexical`, and `prosody`. The method `gemini_only` skips it.
 
 ## Control
 

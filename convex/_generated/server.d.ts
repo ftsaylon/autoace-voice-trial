@@ -30,6 +30,10 @@ import type { DataModel } from "./dataModel.js";
 type Env = {
   readonly CONVEX_CLOUD_URL: string;
   readonly CONVEX_SITE_URL: string;
+  readonly GEMINI_API_KEY: string | undefined;
+  readonly GEMINI_MODEL: string | undefined;
+  readonly GOOGLE_API_KEY: string | undefined;
+  readonly GOOGLE_GENERATIVE_AI_API_KEY: string | undefined;
 };
 
 /**

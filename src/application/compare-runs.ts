@@ -5,14 +5,6 @@ import {
   type EmotionalTone,
 } from "@/domain"
 import { scoresForPairs, type FieldScores, type LabeledPair } from "@/application/scores"
-import type { MethodId } from "@/application/methods"
-
-export type CompareRunRef = {
-  id: string
-  method: MethodId
-  createdAt: number
-}
-
 export type CompareClipInput = {
   id: string
   name: string
@@ -23,6 +15,9 @@ export type CompareClipInput = {
       predictionJson?: string
       errorJson?: string
       state: string
+      stage?: string
+      startedAt?: number
+      finishedAt?: number
     }
   >
 }
@@ -90,19 +85,6 @@ export const fieldValue = (
     case "long_silence_present":
       return prediction.long_silence_present ? "true" : "false"
   }
-}
-
-export const latestRunIdsPerMethod = (runs: CompareRunRef[]): string[] => {
-  const latest = new Map<MethodId, CompareRunRef>()
-  for (const run of runs) {
-    const current = latest.get(run.method)
-    if (!current || run.createdAt >= current.createdAt) {
-      latest.set(run.method, run)
-    }
-  }
-  return [...latest.values()]
-    .sort((a, b) => a.createdAt - b.createdAt)
-    .map((run) => run.id)
 }
 
 export const scoresForRun = (clips: CompareClipInput[], runId: string): FieldScores | null => {

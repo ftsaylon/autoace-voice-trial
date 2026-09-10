@@ -5,6 +5,7 @@ import { useMemo, useState } from "react"
 import { useConvexAuth, useConvex, useQuery } from "convex/react"
 import { MoreHorizontalIcon } from "lucide-react"
 import { api } from "@convex/_generated/api"
+import type { Id } from "@convex/_generated/dataModel"
 import {
   StatusFilterGroup,
   type StatusFilterOption,
@@ -12,7 +13,7 @@ import {
 import { StatusIcon } from "@/components/status-icon"
 import { MethodBadge } from "@/components/batch-badges"
 import { Button } from "@/components/ui/button"
-import { clipsToCsv, clipsToJson, downloadTextFile } from "@/lib/export-clips"
+import { downloadBatchZip } from "@/lib/download-batch-zip"
 import { formatDuration, relativeTime } from "@/lib/format-time"
 
 const FILTERS = ["all", "running", "queued", "complete", "failed", "draft"] as const
@@ -69,25 +70,8 @@ export const BatchList = ({
     return batches.filter((batch) => batch.status === filter)
   }, [batches, filter])
 
-  const handleDownload = async (batchId: string, format: "csv" | "json") => {
-    const detail = await convex.query(api.batches.get, { batchId: batchId as never })
-    if (!detail) {
-      return
-    }
-    const clips = detail.clips.map((clip) => ({
-      name: clip.name,
-      predictionJson: clip.predictionJson,
-      errorJson: clip.errorJson,
-    }))
-    if (format === "csv") {
-      downloadTextFile(`${detail.batch.name}.csv`, clipsToCsv(clips), "text/csv")
-      return
-    }
-    downloadTextFile(
-      `${detail.batch.name}.json`,
-      clipsToJson(clips),
-      "application/json",
-    )
+  const handleDownloadZip = async (batchId: Id<"batches">) => {
+    await downloadBatchZip(convex, batchId)
   }
 
   if (batches === undefined) {
@@ -178,22 +162,11 @@ export const BatchList = ({
                       className="block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted"
                       role="menuitem"
                       onClick={() => {
-                        void handleDownload(batch._id, "csv")
+                        void handleDownloadZip(batch._id)
                         setMenuId(null)
                       }}
                     >
-                      Download CSV
-                    </button>
-                    <button
-                      type="button"
-                      className="block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted"
-                      role="menuitem"
-                      onClick={() => {
-                        void handleDownload(batch._id, "json")
-                        setMenuId(null)
-                      }}
-                    >
-                      Download JSON
+                      Download ZIP
                     </button>
                   </div>
                 ) : null}

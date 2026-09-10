@@ -1,11 +1,25 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 import type { Doc, Id } from "../_generated/dataModel"
 import { unfinishedResults } from "../../src/application/run-policy"
-import { modelForMethod, type MethodId } from "../../src/application/methods"
+import {
+  MAX_METHODS_PER_START,
+  modelForMethod,
+  type MethodId,
+} from "../../src/application/methods"
+import {
+  MAX_CLIP_COUNT,
+  MAX_PARSE_ISSUE_LENGTH,
+  MAX_PARSE_ISSUES,
+  MAX_RUNS_PER_BATCH,
+} from "../../src/domain/constants"
 
 type RunStatus = "queued" | "running" | "complete" | "failed"
 
 type DbCtx = MutationCtx | QueryCtx
+
+type TakeQuery<T> = {
+  take: (n: number) => Promise<T[]>
+}
 
 export const uniqueMethodIds = (methods: MethodId[]): MethodId[] => {
   const seen = new Set<MethodId>()
@@ -20,34 +34,77 @@ export const uniqueMethodIds = (methods: MethodId[]): MethodId[] => {
   return unique
 }
 
+export const requireMethodIds = (methods: MethodId[]): MethodId[] => {
+  const unique = uniqueMethodIds(methods)
+  if (unique.length === 0) {
+    throw new Error("Pick at least one method")
+  }
+  if (unique.length > MAX_METHODS_PER_START) {
+    throw new Error(`Pick at most ${MAX_METHODS_PER_START} methods`)
+  }
+  return unique
+}
+
+export const boundParseIssues = (issues: string[]): string[] => {
+  return issues
+    .slice(0, MAX_PARSE_ISSUES)
+    .map((issue) => issue.slice(0, MAX_PARSE_ISSUE_LENGTH))
+}
+
+export const runHasFullResultSet = (
+  results: Array<{ state: string }>,
+  clipCount: number,
+): boolean => {
+  return (
+    results.length === clipCount && unfinishedResults(results).length === 0
+  )
+}
+
+export const takeAllBounded = async <T>(
+  query: TakeQuery<T>,
+  limit: number,
+  label: string,
+): Promise<T[]> => {
+  const rows = await query.take(limit + 1)
+  if (rows.length > limit) {
+    throw new Error(`${label} exceeded the cap of ${limit}`)
+  }
+  return rows
+}
+
 export const listRuns = async (
   ctx: DbCtx,
   batchId: Id<"batches">,
 ): Promise<Doc<"runs">[]> => {
-  return await ctx.db
-    .query("runs")
-    .withIndex("by_batch_and_created", (q) => q.eq("batchId", batchId))
-    .take(100)
+  return await takeAllBounded(
+    ctx.db
+      .query("runs")
+      .withIndex("by_batch_and_created", (q) => q.eq("batchId", batchId)),
+    MAX_RUNS_PER_BATCH,
+    "Runs on this batch",
+  )
 }
 
 export const listRunResults = async (
   ctx: DbCtx,
   runId: Id<"runs">,
 ): Promise<Doc<"clipResults">[]> => {
-  return await ctx.db
-    .query("clipResults")
-    .withIndex("by_run", (q) => q.eq("runId", runId))
-    .take(100)
+  return await takeAllBounded(
+    ctx.db.query("clipResults").withIndex("by_run", (q) => q.eq("runId", runId)),
+    MAX_CLIP_COUNT,
+    "Clip results on this run",
+  )
 }
 
 export const listBatchClips = async (
   ctx: DbCtx,
   batchId: Id<"batches">,
 ): Promise<Doc<"clips">[]> => {
-  return await ctx.db
-    .query("clips")
-    .withIndex("by_batch", (q) => q.eq("batchId", batchId))
-    .take(100)
+  return await takeAllBounded(
+    ctx.db.query("clips").withIndex("by_batch", (q) => q.eq("batchId", batchId)),
+    MAX_CLIP_COUNT,
+    "Clips on this batch",
+  )
 }
 
 export const overlayClip = (
@@ -99,6 +156,21 @@ const runStatusForBackfill = (status: Doc<"batches">["status"]): RunStatus => {
     return "failed"
   }
   return "complete"
+}
+
+export const storedClips = (clips: Doc<"clips">[]): Doc<"clips">[] => {
+  return clips.filter((clip) => clip.storageId && clip.state !== "uploading")
+}
+
+export const assertClipsReadyToRun = (clips: Doc<"clips">[]): Doc<"clips">[] => {
+  if (clips.some((clip) => !clip.storageId || clip.state === "uploading")) {
+    throw new Error("Clips are still uploading")
+  }
+  const stored = storedClips(clips)
+  if (stored.length === 0) {
+    throw new Error("No valid clips to process")
+  }
+  return stored
 }
 
 export const syncBatchRunMeta = async (
@@ -192,28 +264,26 @@ export const insertRunsForMethods = async (
   batch: Doc<"batches">,
   methods: MethodId[],
 ): Promise<Id<"runs">[]> => {
-  if (methods.length === 0) {
-    throw new Error("Pick at least one method")
-  }
-  const clips = await listBatchClips(ctx, batch._id)
-  const stored = clips.filter((clip) => clip.storageId)
-  if (stored.length === 0) {
-    throw new Error("No valid clips to process")
+  const unique = requireMethodIds(methods)
+  const clips = assertClipsReadyToRun(await listBatchClips(ctx, batch._id))
+  const existing = await listRuns(ctx, batch._id)
+  if (existing.length + unique.length > MAX_RUNS_PER_BATCH) {
+    throw new Error(`This batch already has ${MAX_RUNS_PER_BATCH} runs`)
   }
   const now = Date.now()
   const ids: Id<"runs">[] = []
-  for (const method of methods) {
+  for (const method of unique) {
     const runId = await ctx.db.insert("runs", {
       batchId: batch._id,
       method,
       model: modelForMethod(method),
       status: "queued",
-      clipCount: stored.length,
+      clipCount: clips.length,
       succeededCount: 0,
       failedCount: 0,
       createdAt: now,
     })
-    for (const clip of stored) {
+    for (const clip of clips) {
       await ctx.db.insert("clipResults", {
         runId,
         clipId: clip._id,
@@ -226,7 +296,7 @@ export const insertRunsForMethods = async (
       batchId: batch._id,
       runId,
       level: "info",
-      message: `Queued ${method} run with ${stored.length} clip${stored.length === 1 ? "" : "s"}`,
+      message: `Queued ${method} run with ${clips.length} clip${clips.length === 1 ? "" : "s"}`,
       createdAt: now,
     })
     ids.push(runId)
@@ -256,7 +326,7 @@ export const completeRunIfIdle = async (
   run: Doc<"runs">,
 ): Promise<boolean> => {
   const results = await listRunResults(ctx, run._id)
-  if (unfinishedResults(results).length > 0) {
+  if (!runHasFullResultSet(results, run.clipCount)) {
     return false
   }
   const failedCount = results.filter((row) => row.state === "failed").length
