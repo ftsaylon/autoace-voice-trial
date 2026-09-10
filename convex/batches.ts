@@ -4,6 +4,7 @@ import { internal } from "./_generated/api"
 import { requireUserId } from "./lib/auth"
 import { ownedOrNull } from "./lib/access"
 import { methodValidator } from "./schema"
+import { failedResultsForRun } from "../src/application/run-policy"
 import { MAX_RUNNING_BATCHES, decideBatchLaunch } from "./lib/constants"
 import { modelForMethod, type MethodId } from "../src/application/methods"
 import {
@@ -420,12 +421,9 @@ export const retryRun = mutation({
     if (batch.status === "running") {
       throw new Error("Wait for the current run to finish")
     }
-    const results = await listRunResults(ctx, args.runId)
+    const results = failedResultsForRun(await listRunResults(ctx, args.runId), args.runId)
     let requeued = 0
     for (const row of results) {
-      if (row.state !== "failed") {
-        continue
-      }
       await ctx.db.patch(row._id, {
         state: "queued",
         stage: undefined,
@@ -490,12 +488,9 @@ export const retry = mutation({
       const current = await ctx.db.get(args.batchId)
       return { requeued: current?.clipCount ?? 0 }
     }
-    const results = await listRunResults(ctx, latest._id)
+    const results = failedResultsForRun(await listRunResults(ctx, latest._id), latest._id)
     let requeued = 0
     for (const row of results) {
-      if (row.state !== "failed") {
-        continue
-      }
       await ctx.db.patch(row._id, {
         state: "queued",
         stage: undefined,

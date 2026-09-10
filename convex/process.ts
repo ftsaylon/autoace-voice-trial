@@ -2,6 +2,11 @@ import { v } from "convex/values"
 import { internalMutation } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { CLAIM_STALE_MS } from "../src/domain/constants"
+import {
+  hasPendingRuns,
+  pickRunningRun,
+  queuedRunsOldestFirst,
+} from "../src/application/run-policy"
 import { MAX_RUNNING_BATCHES } from "./lib/constants"
 import {
   activateRun,
@@ -71,7 +76,7 @@ export const claimNext = internalMutation({
       }
     }
 
-    const running = runs.find((run) => run.status === "running")
+    const running = pickRunningRun(runs)
     if (running) {
       const claimed = await claimFromRun(running)
       if (claimed) {
@@ -80,9 +85,7 @@ export const claimNext = internalMutation({
       await completeRunIfIdle(ctx, running)
     }
 
-    const queued = runs
-      .filter((run) => run.status === "queued")
-      .sort((a, b) => a.createdAt - b.createdAt)
+    const queued = queuedRunsOldestFirst(runs)
     for (const run of queued) {
       await activateRun(ctx, run, batch)
       const claimed = await claimFromRun(run)
@@ -198,10 +201,7 @@ export const finishBatchIfIdle = internalMutation({
       return { finished: false }
     }
     const runs = await listRuns(ctx, args.batchId)
-    const pendingRuns = runs.some(
-      (run) => run.status === "queued" || run.status === "running",
-    )
-    if (pendingRuns) {
+    if (hasPendingRuns(runs)) {
       return { finished: false }
     }
     if (runs.length === 0) {
