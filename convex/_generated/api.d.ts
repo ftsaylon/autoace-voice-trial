@@ -14,6 +14,7 @@ import type * as http from "../http.js";
 import type * as lib_access from "../lib/access.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_constants from "../lib/constants.js";
+import type * as lib_runs from "../lib/runs.js";
 import type * as logs from "../logs.js";
 import type * as process from "../process.js";
 import type * as processActions from "../processActions.js";
@@ -32,6 +33,7 @@ declare const fullApi: ApiFromModules<{
   "lib/access": typeof lib_access;
   "lib/auth": typeof lib_auth;
   "lib/constants": typeof lib_constants;
+  "lib/runs": typeof lib_runs;
   logs: typeof logs;
   process: typeof process;
   processActions: typeof processActions;
