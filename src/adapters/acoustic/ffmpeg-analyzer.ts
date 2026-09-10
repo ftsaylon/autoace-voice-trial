@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, chmod, constants, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import ffmpegPath from "ffmpeg-static";
@@ -11,14 +11,25 @@ import type { AnalyzeError } from "@/domain/errors";
 
 export const SAMPLE_RATE = 16000;
 
-function runFfmpeg(args: string[], input?: Uint8Array): Promise<Uint8Array> {
+const ensureExecutable = async (bin: string): Promise<string> => {
+  try {
+    await access(bin, constants.X_OK);
+    return bin;
+  } catch {
+    await chmod(bin, 0o755);
+    await access(bin, constants.X_OK);
+    return bin;
+  }
+};
+
+async function runFfmpeg(args: string[], input?: Uint8Array): Promise<Uint8Array> {
+  if (!ffmpegPath) {
+    throw new Error("ffmpeg-static binary is missing");
+  }
+  const bin = await ensureExecutable(ffmpegPath);
   return new Promise((resolve, reject) => {
-    if (!ffmpegPath) {
-      reject(new Error("ffmpeg-static binary is missing"));
-      return;
-    }
     const chunks: Buffer[] = [];
-    const child = spawn(ffmpegPath, args, { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(bin, args, { stdio: ["pipe", "pipe", "pipe"] });
     child.stdout.on("data", (chunk: Buffer) => {
       chunks.push(chunk);
     });
