@@ -8,6 +8,7 @@ import { api } from "@convex/_generated/api"
 import type { Id } from "@convex/_generated/dataModel"
 import { StatusIcon } from "@/components/status-icon"
 import { MethodCards } from "@/components/method-cards"
+import { BatchCompare } from "@/components/batch-compare"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { MethodBadge, ModelBadge } from "@/components/batch-badges"
@@ -19,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatAnalyzeError, type AnalyzeError } from "@/domain"
 import {
   DIFF_FIELDS,
@@ -30,8 +32,9 @@ import {
 } from "@/lib/clip-view"
 import { clipsToCsv, clipsToJson, downloadTextFile } from "@/lib/export-clips"
 import { formatDuration, formatF1, formatPercent } from "@/lib/format-time"
+import { labelRuns } from "@/lib/run-labels"
 import { useBatchUpload } from "@/hooks/use-batch-upload"
-import type { AnalysisMethod } from "@/application/methods"
+import { METHOD_IDS, METHODS, type AnalysisMethod, type MethodId } from "@/application/methods"
 import { cn } from "@/lib/utils"
 
 const errorLabel = (errorJson?: string): string => {
@@ -48,9 +51,12 @@ const errorLabel = (errorJson?: string): string => {
 export const BatchDetail = ({ batchId }: { batchId: string }) => {
   const { isAuthenticated } = useConvexAuth()
   const id = batchId as Id<"batches">
+  const [runId, setRunId] = useState<Id<"runs"> | null>(null)
   const detail = useQuery(
     api.batches.get,
-    isAuthenticated ? { batchId: id } : "skip",
+    isAuthenticated
+      ? { batchId: id, runId: runId ?? undefined }
+      : "skip",
   )
   const logs = useQuery(
     api.logs.listForUser,
@@ -58,10 +64,15 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
   )
   const setMethod = useMutation(api.batches.setMethod)
   const start = useMutation(api.batches.start)
+  const startRuns = useMutation(api.batches.startRuns)
+  const retryRun = useMutation(api.batches.retryRun)
   const retry = useMutation(api.batches.retry)
   const [method, setLocalMethod] = useState<AnalysisMethod | null>(null)
   const [pending, setPending] = useState(false)
-  const [redoOpen, setRedoOpen] = useState(false)
+  const [runMethodsOpen, setRunMethodsOpen] = useState(false)
+  const [runMethods, setRunMethods] = useState<MethodId[]>(["fusion"])
+  const [tab, setTab] = useState("results")
+  const [focusClipId, setFocusClipId] = useState<string | null>(null)
   const {
     isUploading,
     progress,
@@ -101,12 +112,14 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
     )
   }
 
-  const { batch, clips } = detail
+  const { batch, clips, runs, viewingRun } = detail
+  const labeledRuns = labelRuns(runs)
   const selectedMethod = method ?? batch.method
   const isDraft = batch.status === "draft"
   const isUploadingBatch =
     batch.status === "uploading" && (isUploading || uploadWaitingRemote)
-  const canRetry = batch.status === "complete" || batch.status === "failed"
+  const canAct = batch.status === "complete" || batch.status === "failed"
+  const viewingFailed = viewingRun?.failedCount ?? batch.failedCount
   const uploadLabel = progress
     ? uploadWaitingRemote && !isUploading
       ? `Waiting for upload ${progress.done}/${progress.total}`
@@ -114,7 +127,16 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
     : uploadWaitingRemote
       ? "Waiting for upload to finish"
       : "Uploading clips"
-  const failedCount = batch.failedCount
+  const runningRun = runs.find((run) => run.status === "running")
+  const queuedRunCount = runs.filter((run) => run.status === "queued").length
+  const completedRunCount = runs.filter(
+    (run) => run.status === "complete" || run.status === "failed",
+  ).length
+  const methodIds = batch.methodIds ?? [batch.method]
+  const downloadName =
+    (batch.runCount ?? runs.length) > 1 && viewingRun
+      ? `${batch.name}-${viewingRun.method}`
+      : batch.name
 
   const handleDownload = (format: "csv" | "json") => {
     const payload = clips.map((clip) => ({
@@ -123,10 +145,10 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
       errorJson: clip.errorJson,
     }))
     if (format === "csv") {
-      downloadTextFile(`${batch.name}.csv`, clipsToCsv(payload), "text/csv")
+      downloadTextFile(`${downloadName}.csv`, clipsToCsv(payload), "text/csv")
       return
     }
-    downloadTextFile(`${batch.name}.json`, clipsToJson(payload), "application/json")
+    downloadTextFile(`${downloadName}.json`, clipsToJson(payload), "application/json")
   }
 
   const handleRun = async () => {
@@ -146,21 +168,53 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
     }
   }
 
-  const handleRetry = async (scope: "failed" | "all") => {
+  const handleRetryFailed = async () => {
     setPending(true)
-    setRedoOpen(false)
     try {
-      const result = await retry({ batchId: id, scope })
+      if (viewingRun) {
+        const result = await retryRun({ runId: viewingRun._id })
+        if (result.requeued === 0) {
+          toast.message("Nothing to retry")
+          return
+        }
+        toast.message(`Requeued ${result.requeued} failed clips`)
+        return
+      }
+      const result = await retry({ batchId: id, scope: "failed" })
       if (result.requeued === 0) {
         toast.message("Nothing to retry")
         return
       }
-      await start({ batchId: id })
+      toast.message(`Requeued ${result.requeued} failed clips`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Retry failed")
     } finally {
       setPending(false)
     }
+  }
+
+  const handleStartRuns = async () => {
+    setPending(true)
+    try {
+      const result = await startRuns({ batchId: id, methods: runMethods })
+      setRunMethodsOpen(false)
+      setTab("results")
+      setRunId(null)
+      if (result.reason === "queued") {
+        toast.message("Queued until another batch finishes")
+      } else if (result.reason === "already_running") {
+        toast.message("Queued on this batch until the current run finishes")
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not start runs")
+    } finally {
+      setPending(false)
+    }
+  }
+
+  const openRunMethods = () => {
+    setRunMethods([viewingRun?.method ?? batch.method])
+    setRunMethodsOpen(true)
   }
 
   return (
@@ -177,13 +231,43 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
           <div className="flex flex-wrap items-center gap-3">
             <StatusIcon status={batch.status} />
             <h1 className="text-2xl font-semibold tracking-tight">{batch.name}</h1>
-            <MethodBadge method={batch.method} />
-            <ModelBadge model={batch.model} />
+            {methodIds.map((methodId) => (
+              <MethodBadge key={methodId} method={methodId} />
+            ))}
+            <ModelBadge model={viewingRun?.model ?? batch.model} />
           </div>
           <p className="text-sm text-muted-foreground">
-            {batch.succeededCount + batch.failedCount}/{batch.clipCount} clips
+            {runningRun
+              ? `${METHODS[runningRun.method].label} · ${runningRun.succeededCount + runningRun.failedCount}/${runningRun.clipCount}`
+              : `${(viewingRun?.succeededCount ?? batch.succeededCount) + (viewingRun?.failedCount ?? batch.failedCount)}/${batch.clipCount} clips`}
+            {queuedRunCount > 0 ? ` · ${queuedRunCount} queued` : ""}
             {` · ${formatDuration(batch.startedAt, batch.completedAt)}`}
           </p>
+          {labeledRuns.length > 0 ? (
+            <div className="flex flex-wrap gap-2 pt-1">
+              {labeledRuns.map((run) => {
+                const active = (runId ?? viewingRun?._id) === run.id
+                const status = runs.find((row) => row._id === run.id)?.status
+                return (
+                  <button
+                    key={run.id}
+                    type="button"
+                    onClick={() => setRunId(run.id as Id<"runs">)}
+                    className={cn(
+                      "rounded-full border px-3 py-1 text-xs",
+                      active
+                        ? "border-foreground bg-foreground text-background"
+                        : "border-border text-muted-foreground hover:border-foreground/40",
+                    )}
+                  >
+                    {run.label}
+                    {status === "running" ? " · running" : ""}
+                    {status === "queued" ? " · queued" : ""}
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-3">
           <Button
@@ -202,28 +286,27 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
           >
             Download JSON
           </Button>
-          {canRetry && failedCount > 0 ? (
+          {canAct && viewingFailed > 0 ? (
             <Button
               type="button"
               variant="outline"
               size="lg"
               disabled={pending}
               onClick={() => {
-                void handleRetry("failed")
+                void handleRetryFailed()
               }}
             >
               Retry failed
             </Button>
           ) : null}
-          {canRetry ? (
+          {!isUploadingBatch && batch.status !== "uploading" && batch.status !== "draft" ? (
             <Button
               type="button"
-              variant="outline"
               size="lg"
-              disabled={pending}
-              onClick={() => setRedoOpen(true)}
+              disabled={pending || batch.status === "running"}
+              onClick={openRunMethods}
             >
-              Redo
+              Run methods
             </Button>
           ) : null}
         </div>
@@ -346,7 +429,9 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
           <p className="mt-2 text-sm text-muted-foreground">
             {isUploadingBatch
               ? "Processing starts automatically once uploads finish."
-              : "One clip at a time inside this batch. Other batches can run at the same time."}
+              : queuedRunCount > 0 || runningRun
+                ? "One clip at a time inside the active run. Queued methods start when the current run finishes."
+                : "One clip at a time inside this batch. Other batches can run at the same time."}
           </p>
         </details>
         <details open className="px-5 py-4">
@@ -354,10 +439,137 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
           <p className="mt-2 text-sm text-muted-foreground">
             Status: {isUploadingBatch ? "uploading" : batch.status}
             {batch.failedCount > 0 ? ` · ${batch.failedCount} isolated failures` : ""}
+            {(batch.runCount ?? runs.length) > 1
+              ? ` · ${batch.runCount ?? runs.length} runs`
+              : ""}
           </p>
         </details>
       </section>
 
+      {runs.length > 0 ? (
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList>
+            <TabsTrigger value="results">Results</TabsTrigger>
+            {completedRunCount >= 2 ? (
+              <TabsTrigger value="compare">Compare</TabsTrigger>
+            ) : null}
+          </TabsList>
+          <TabsContent value="results" className="mt-6 space-y-8">
+            <ResultsBody
+              clips={clips}
+              scores={scores}
+              focusClipId={focusClipId}
+            />
+          </TabsContent>
+          {completedRunCount >= 2 ? (
+            <TabsContent value="compare" className="mt-6">
+              <BatchCompare
+                batchName={batch.name}
+                clips={clips}
+                runs={runs}
+                results={detail.allResults}
+                onOpenClip={(clipId) => {
+                  setFocusClipId(clipId)
+                }}
+              />
+            </TabsContent>
+          ) : null}
+        </Tabs>
+      ) : (
+        <ResultsBody clips={clips} scores={scores} focusClipId={focusClipId} />
+      )}
+
+      <section className="rounded-xl border border-border bg-card">
+        <div className="border-b border-border px-5 py-3 text-sm font-medium">
+          Clip log
+        </div>
+        <div className="max-h-80 overflow-auto bg-black p-4 font-mono text-xs text-zinc-100">
+          {chronologicalLogs.length === 0 ? (
+            <p className="text-zinc-500">No log lines yet.</p>
+          ) : (
+            chronologicalLogs.map((row) => {
+              const dim =
+                viewingRun && row.runId && row.runId !== viewingRun._id
+              return (
+                <p
+                  key={row._id}
+                  className={
+                    row.level === "error"
+                      ? "text-red-400"
+                      : dim
+                        ? "text-zinc-500"
+                        : "text-zinc-200"
+                  }
+                >
+                  {new Date(row.createdAt).toISOString().slice(11, 19)} {row.message}
+                </p>
+              )
+            })
+          )}
+        </div>
+      </section>
+
+      <Dialog open={runMethodsOpen} onOpenChange={setRunMethodsOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Run methods</DialogTitle>
+            <DialogDescription>
+              New runs keep existing results. Methods process one after another on the
+              same files.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setRunMethods([...METHOD_IDS])}
+            >
+              Select all
+            </Button>
+          </div>
+          <MethodCards multiple value={runMethods} onChange={setRunMethods} />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setRunMethodsOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={pending || runMethods.length === 0}
+              onClick={() => {
+                void handleStartRuns()
+              }}
+            >
+              {pending ? "Starting…" : `Run ${runMethods.length} method${runMethods.length === 1 ? "" : "s"}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+const ResultsBody = ({
+  clips,
+  scores,
+  focusClipId,
+}: {
+  clips: Array<{
+    _id: string
+    name: string
+    state: "uploading" | "queued" | "running" | "succeeded" | "failed"
+    goldJson?: string
+    predictionJson?: string
+    errorJson?: string
+    stage?: string
+    startedAt?: number
+    finishedAt?: number
+  }>
+  scores: ReturnType<typeof scoresFromClips>
+  focusClipId: string | null
+}) => {
+  return (
+    <>
       {scores ? (
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <ScoreCard
@@ -393,6 +605,8 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
             return (
               <details
                 key={clip._id}
+                id={`clip-${clip._id}`}
+                open={focusClipId === clip._id ? true : undefined}
                 className={cn(
                   "border-b border-border last:border-b-0",
                   (clip.state === "running" || clip.state === "uploading") &&
@@ -459,51 +673,7 @@ export const BatchDetail = ({ batchId }: { batchId: string }) => {
             )
           })}
       </section>
-
-      <section className="rounded-xl border border-border bg-card">
-        <div className="border-b border-border px-5 py-3 text-sm font-medium">
-          Clip log
-        </div>
-        <div className="max-h-80 overflow-auto bg-black p-4 font-mono text-xs text-zinc-100">
-          {chronologicalLogs.length === 0 ? (
-            <p className="text-zinc-500">No log lines yet.</p>
-          ) : (
-            chronologicalLogs.map((row) => (
-              <p
-                key={row._id}
-                className={row.level === "error" ? "text-red-400" : "text-zinc-200"}
-              >
-                {new Date(row.createdAt).toISOString().slice(11, 19)} {row.message}
-              </p>
-            ))
-          )}
-        </div>
-      </section>
-
-      <Dialog open={redoOpen} onOpenChange={setRedoOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Redo this batch?</DialogTitle>
-            <DialogDescription>
-              All clips will be queued again and processed with the current method.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setRedoOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={() => {
-                void handleRetry("all")
-              }}
-            >
-              Redo
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+    </>
   )
 }
 

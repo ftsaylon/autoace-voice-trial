@@ -19,4 +19,14 @@ describe("new batch method selection", () => {
     expect(resolveMethod("baseline", "fusion")).toBe("fusion")
     expect(resolveMethod("fusion", "lexical")).toBe("lexical")
   })
+
+  it("uses the compare-mode list when it is non-empty", () => {
+    const selected = (compare: boolean, methods: MethodId[], fallback: MethodId) =>
+      compare && methods.length > 0 ? methods : [fallback]
+    expect(selected(false, ["baseline"], "fusion")).toEqual(["fusion"])
+    expect(selected(true, ["lexical", "prosody"], "fusion")).toEqual([
+      "lexical",
+      "prosody",
+    ])
+  })
 })

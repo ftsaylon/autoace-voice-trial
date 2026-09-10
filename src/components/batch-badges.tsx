@@ -3,6 +3,19 @@ import { METHODS, isMethodId, type MethodId } from "@/application/methods"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
+export const METHOD_CHART_COLOR: Record<MethodId, { fill: string; muted: string }> = {
+  fusion: { fill: "#7c3aed", muted: "#c4b5fd" },
+  baseline: { fill: "#64748b", muted: "#cbd5e1" },
+  lexical: { fill: "#0d9488", muted: "#5eead4" },
+  prosody: { fill: "#d97706", muted: "#fcd34d" },
+  gemini_only: { fill: "#0284c7", muted: "#7dd3fc" },
+}
+
+export const runChartColor = (method: MethodId | string, occurrence: number): string => {
+  const known = isMethodId(method) ? METHOD_CHART_COLOR[method] : METHOD_CHART_COLOR.fusion
+  return occurrence === 0 ? known.fill : known.muted
+}
+
 const methodStyle: Record<
   MethodId,
   {

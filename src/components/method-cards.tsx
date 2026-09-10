@@ -9,22 +9,23 @@ import {
   type MethodRole,
 } from "@/application/methods"
 
-export const MethodCards = ({
-  value,
-  onChange,
-}: {
-  value: MethodId
-  onChange: (method: MethodId) => void
-}) => {
+type MethodCardsProps =
+  | {
+      multiple?: false
+      value: MethodId
+      onChange: (method: MethodId) => void
+    }
+  | {
+      multiple: true
+      value: MethodId[]
+      onChange: (methods: MethodId[]) => void
+    }
+
+export const MethodCards = (props: MethodCardsProps) => {
   return (
     <div className="space-y-6">
       {METHOD_ROLES.map((role) => (
-        <RoleGroup
-          key={role}
-          role={role}
-          value={value}
-          onChange={onChange}
-        />
+        <RoleGroup key={role} role={role} {...props} />
       ))}
     </div>
   )
@@ -32,13 +33,8 @@ export const MethodCards = ({
 
 const RoleGroup = ({
   role,
-  value,
-  onChange,
-}: {
-  role: MethodRole
-  value: MethodId
-  onChange: (method: MethodId) => void
-}) => {
+  ...props
+}: { role: MethodRole } & MethodCardsProps) => {
   const methods = METHOD_LIST.filter((method) => method.role === role)
   return (
     <div className="space-y-3">
@@ -47,12 +43,26 @@ const RoleGroup = ({
       </p>
       <div className="grid gap-4 md:grid-cols-2">
         {methods.map((method) => {
-          const selected = value === method.id
+          const selected = props.multiple
+            ? props.value.includes(method.id)
+            : props.value === method.id
           return (
             <button
               key={method.id}
               type="button"
-              onClick={() => onChange(method.id)}
+              onClick={() => {
+                if (props.multiple) {
+                  const next = props.value.includes(method.id)
+                    ? props.value.filter((id) => id !== method.id)
+                    : [...props.value, method.id]
+                  if (next.length === 0) {
+                    return
+                  }
+                  props.onChange(next)
+                  return
+                }
+                props.onChange(method.id)
+              }}
               aria-pressed={selected}
               className={cn(
                 "rounded-xl border bg-card p-6 text-left transition-colors",

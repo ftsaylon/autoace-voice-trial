@@ -132,13 +132,21 @@ export const BatchList = ({
                 <p className="truncate text-sm font-medium">{batch.name}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {batch.succeededCount + batch.failedCount}/{batch.clipCount} clips
+                  {(batch.runCount ?? 0) > 1 ? ` · ${batch.runCount} runs` : ""}
                   {batch.startedAt
                     ? ` · ${formatDuration(batch.startedAt, batch.completedAt)}`
                     : ""}
                   {` · ${relativeTime(batch.createdAt)}`}
                 </p>
               </Link>
-              <MethodBadge method={batch.method} />
+              <div className="hidden flex-wrap justify-end gap-1 sm:flex">
+                {(batch.methodIds && batch.methodIds.length > 0
+                  ? batch.methodIds
+                  : [batch.method]
+                ).map((methodId) => (
+                  <MethodBadge key={methodId} method={methodId} />
+                ))}
+              </div>
               <div className="relative">
                 <Button
                   type="button"

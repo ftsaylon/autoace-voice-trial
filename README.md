@@ -52,6 +52,8 @@ Supported audio: wav, mp3, ogg, m4a, flac.
 
 Create a batch from **New batch** on the Batches page (or drop a ZIP/folder onto that page), pick a method, then press **Run**. Files upload as soon as they parse. Classification does not start until you press Run. Hidden-set scoring should use **Fusion**.
 
+To compare methods, turn on **Compare methods** before Run, or open a finished batch and press **Run methods**. Audio is not re-uploaded. Each attempt is stored as a run. The Compare tab shows grouped accuracy bars, tone confusion matrices, and a clip heatmap.
+
 ### Methods
 
 See [docs/GLOSSARY.md](docs/GLOSSARY.md) for the words method, classifier, and model. See [docs/METHODS.md](docs/METHODS.md) for field ownership and cost.

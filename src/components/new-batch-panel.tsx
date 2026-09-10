@@ -20,7 +20,7 @@ import {
 import { MethodCards } from "@/components/method-cards"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import type { AnalysisMethod } from "@/application/methods"
+import { METHOD_IDS, type AnalysisMethod, type MethodId } from "@/application/methods"
 
 export type NewBatchPanelProps = {
   initialFiles?: File[] | null
@@ -47,6 +47,8 @@ export const NewBatchPanel = ({
   const [dragging, setDragging] = useState(false)
   const [selected, setSelected] = useState<SelectedBatchFile[]>([])
   const [method, setMethod] = useState<AnalysisMethod | null>(null)
+  const [compareMode, setCompareMode] = useState(false)
+  const [methods, setMethods] = useState<MethodId[]>([])
   const [errors, setErrors] = useState<string[]>([])
   const [starting, setStarting] = useState(false)
   const initialHandled = useRef(false)
@@ -56,6 +58,8 @@ export const NewBatchPanel = ({
   const runInFlightRef = useRef(false)
 
   const selectedMethod: AnalysisMethod = method ?? settings?.defaultMethod ?? "fusion"
+  const selectedMethods: MethodId[] =
+    compareMode && methods.length > 0 ? methods : [selectedMethod]
 
   const setRunBusy = useCallback(
     (busy: boolean) => {
@@ -182,7 +186,8 @@ export const NewBatchPanel = ({
       const uploads = clipsToUploads(parsed)
       const batchId = await createDraft({
         name: defaultBatchName(uploads.length),
-        method: selectedMethod,
+        method: selectedMethods[0] ?? selectedMethod,
+        methods: selectedMethods,
         parseIssues: parsed.parseIssues,
         clips: uploads.map((clip) => ({
           name: clip.name,
@@ -283,14 +288,51 @@ export const NewBatchPanel = ({
       ) : null}
 
       <div className="space-y-5">
-        <div>
-          <h2 className="text-sm font-medium">Method</h2>
-          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            Fusion is the production path. Baseline is the DSP control. You can pick either
-            before running.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-medium">Method</h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              {compareMode
+                ? "Methods run one after another on the same files. Gemini methods cost extra."
+                : "Fusion is the production path. Baseline is the DSP control. You can pick either before running."}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant={compareMode ? "default" : "outline"}
+              size="sm"
+              disabled={starting}
+              onClick={() => {
+                setCompareMode((current) => {
+                  const next = !current
+                  if (next) {
+                    setMethods([selectedMethod])
+                  }
+                  return next
+                })
+              }}
+            >
+              Compare methods
+            </Button>
+            {compareMode ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={starting}
+                onClick={() => setMethods([...METHOD_IDS])}
+              >
+                Select all
+              </Button>
+            ) : null}
+          </div>
         </div>
-        <MethodCards value={selectedMethod} onChange={setMethod} />
+        {compareMode ? (
+          <MethodCards multiple value={selectedMethods} onChange={setMethods} />
+        ) : (
+          <MethodCards value={selectedMethod} onChange={setMethod} />
+        )}
       </div>
 
       {errors.length > 0 ? (

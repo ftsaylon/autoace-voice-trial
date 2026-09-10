@@ -17,6 +17,7 @@ import type { AudioStore, BatchRepository } from "../src/application/ports"
 
 export const processNext = internalAction({
   args: { batchId: v.id("batches") },
+  returns: v.null(),
   handler: async (ctx, args) => {
     const claimed = await ctx.runMutation(internal.process.claimNext, {
       batchId: args.batchId,
@@ -28,24 +29,30 @@ export const processNext = internalAction({
       if (finished.finished) {
         await ctx.runMutation(internal.process.startNextQueued, {})
       }
-      return
+      return null
+    }
+
+    const failClip = async (errorJson: string) => {
+      await ctx.runMutation(internal.process.completeClip, {
+        clipResultId: claimed.clipResultId,
+        ok: false,
+        errorJson,
+      })
     }
 
     const blob = await ctx.storage.get(claimed.storageId)
     if (!blob) {
-      await ctx.runMutation(internal.process.completeClip, {
-        clipId: claimed.clipId,
-        ok: false,
-        errorJson: JSON.stringify({
+      await failClip(
+        JSON.stringify({
           tag: "decode_failed",
           name: claimed.name,
           cause: "Audio is missing from storage",
         }),
-      })
+      )
       await ctx.scheduler.runAfter(0, internal.processActions.processNext, {
         batchId: args.batchId,
       })
-      return
+      return null
     }
 
     const bytes = new Uint8Array(await blob.arrayBuffer())
@@ -55,22 +62,19 @@ export const processNext = internalAction({
         tag: "classifier_invalid_output" as const,
         cause: `Unknown method ${claimed.method}`,
       }
-      await ctx.runMutation(internal.process.completeClip, {
-        clipId: claimed.clipId,
-        ok: false,
-        errorJson: JSON.stringify(error),
-      })
+      await failClip(JSON.stringify(error))
       await ctx.runMutation(internal.process.appendLog, {
         userId: claimed.userId,
         batchId: claimed.batchId,
         clipId: claimed.clipId,
+        runId: claimed.runId,
         level: "error",
         message: formatAnalyzeError(error),
       })
       await ctx.scheduler.runAfter(0, internal.processActions.processNext, {
         batchId: args.batchId,
       })
-      return
+      return null
     }
 
     const acoustic = new FfmpegAcousticAnalyzer()
@@ -103,11 +107,11 @@ export const processNext = internalAction({
         throw new Error("requeueClips is not used in the worker")
       },
       async complete(
-        clipId: string,
+        _clipId: string,
         result: Result<ClipPrediction, AnalyzeError>,
       ) {
         await ctx.runMutation(internal.process.completeClip, {
-          clipId: clipId as typeof claimed.clipId,
+          clipResultId: claimed.clipResultId,
           ok: result.ok,
           predictionJson: result.ok ? autoAceJsonString(result.value) : undefined,
           errorJson: result.ok ? undefined : JSON.stringify(result.error),
@@ -125,8 +129,10 @@ export const processNext = internalAction({
           fuseQualityAndSilence: method.fuseQualityAndSilence,
           onStage: async (stage) => {
             await ctx.runMutation(internal.process.setStage, {
+              clipResultId: claimed.clipResultId,
               clipId: claimed.clipId,
               batchId: claimed.batchId,
+              runId: claimed.runId,
               userId: claimed.userId,
               stage: `${formatProcessStage(stage)} · ${claimed.model}`,
             })
@@ -145,18 +151,17 @@ export const processNext = internalAction({
         },
       )
     } catch (error) {
-      await ctx.runMutation(internal.process.completeClip, {
-        clipId: claimed.clipId,
-        ok: false,
-        errorJson: JSON.stringify({
+      await failClip(
+        JSON.stringify({
           tag: "classifier_invalid_output",
           cause: error instanceof Error ? error.message : "Unexpected worker error",
         }),
-      })
+      )
       await ctx.runMutation(internal.process.appendLog, {
         userId: claimed.userId,
         batchId: claimed.batchId,
         clipId: claimed.clipId,
+        runId: claimed.runId,
         level: "error",
         message: error instanceof Error ? error.message : "Unexpected worker error",
       })
@@ -165,5 +170,6 @@ export const processNext = internalAction({
     await ctx.scheduler.runAfter(0, internal.processActions.processNext, {
       batchId: args.batchId,
     })
+    return null
   },
 })
