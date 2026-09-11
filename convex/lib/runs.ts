@@ -134,12 +134,12 @@ export const pickViewingRun = (
     return null
   }
   if (runId) {
-    return runs.find((run) => run._id === runId) ?? runs[runs.length - 1] ?? null
+    return runs.find((run) => run._id === runId) ?? runs[0] ?? null
   }
   return (
     runs.find((run) => run.status === "running") ??
     runs.find((run) => run.status === "queued") ??
-    runs[runs.length - 1] ??
+    runs[0] ??
     null
   )
 }

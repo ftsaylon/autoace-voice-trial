@@ -7,7 +7,6 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -34,6 +33,7 @@ import {
 } from "@/lib/overlay-clips"
 import {
   canCompareRuns,
+  defaultBatchView,
   pickViewingRunId,
 } from "@/application/run-policy"
 import { METHOD_IDS, METHODS } from "@/application/methods"
@@ -87,12 +87,8 @@ export const BatchShell = ({ batchId }: { batchId: Id<"batches"> }) => {
   const searchParams = useSearchParams()
   const convex = useConvex()
   const { isAuthenticated } = useConvexAuth()
-  const view: BatchView =
-    searchParams.get("view") === "compare" ? "compare" : "clips"
-  const isCompare = view === "compare"
   const [selectedRunId, setSelectedRunId] = useState<Id<"runs"> | null>(null)
   const [focusClipId, setFocusClipId] = useState<string | null>(null)
-  const [compareOpened, setCompareOpened] = useState(view === "compare")
   const [pending, setPending] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const retryRun = useMutation(api.batches.retryRun)
@@ -115,6 +111,21 @@ export const BatchShell = ({ batchId }: { batchId: Id<"batches"> }) => {
       : undefined
   const detail = detailQuery ?? cachedDetail
   const isInitialLoad = detail === undefined
+
+  const view: BatchView = useMemo(() => {
+    const param = searchParams.get("view")
+    if (param === "compare") {
+      return "compare"
+    }
+    if (param === "clips") {
+      return "clips"
+    }
+    if (detail && defaultBatchView(detail.runs) === "compare") {
+      return "compare"
+    }
+    return "clips"
+  }, [detail, searchParams])
+  const isCompare = view === "compare"
 
   const runIds = useMemo(
     () => detail?.runs.map((run) => run._id) ?? [],
@@ -184,7 +195,7 @@ export const BatchShell = ({ batchId }: { batchId: Id<"batches"> }) => {
       const href =
         next === "compare"
           ? `/batches/${batchId}?view=compare`
-          : `/batches/${batchId}`
+          : `/batches/${batchId}?view=clips`
       router.replace(href, { scroll: false })
     },
     [batchId, router],
@@ -197,12 +208,6 @@ export const BatchShell = ({ batchId }: { batchId: Id<"batches"> }) => {
     },
     [setView],
   )
-
-  useEffect(() => {
-    if (view === "compare") {
-      setCompareOpened(true)
-    }
-  }, [view])
 
   if (isInitialLoad) {
     return <LoadingMessage>Loading batch…</LoadingMessage>
@@ -435,11 +440,7 @@ export const BatchShell = ({ batchId }: { batchId: Id<"batches"> }) => {
         <div className={cn(view !== "clips" && "hidden")} aria-hidden={view !== "clips"}>
           <BatchDetail />
         </div>
-        {compareOpened ? (
-          <div className={cn(view !== "compare" && "hidden")} aria-hidden={view !== "compare"}>
-            <BatchCompareView />
-          </div>
-        ) : null}
+        {view === "compare" ? <BatchCompareView /> : null}
       </div>
     </BatchShellContext.Provider>
   )

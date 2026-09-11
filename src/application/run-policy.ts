@@ -62,14 +62,23 @@ export const pickViewingRunId = <T extends RunQueueItem & { _id: string }>(
     return null
   }
   if (runId) {
-    return runs.find((run) => run._id === runId)?._id ?? runs[runs.length - 1]?._id ?? null
+    return runs.find((run) => run._id === runId)?._id ?? runs[0]?._id ?? null
   }
   return (
     runs.find((run) => run.status === "running")?._id ??
     runs.find((run) => run.status === "queued")?._id ??
-    runs[runs.length - 1]?._id ??
+    runs[0]?._id ??
     null
   )
+}
+
+export const defaultBatchView = <T extends RunQueueItem>(
+  runs: T[],
+): "clips" | "compare" => {
+  if (runs.length >= 2 && canCompareRuns(runs)) {
+    return "compare"
+  }
+  return "clips"
 }
 
 export const failedResultsForRun = <T extends { runId: string; state: string }>(

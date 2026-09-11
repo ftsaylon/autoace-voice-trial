@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest"
 import {
   canCompareRuns,
   decideBatchLaunch,
+  defaultBatchView,
   failedResultsForRun,
   hasPendingRuns,
   inFlightToSchedule,
   MAX_IN_FLIGHT_CLIPS,
   pickRunningRun,
+  pickViewingRunId,
   processesOnCreate,
   queuedRunsOldestFirst,
   unfinishedResults,
@@ -24,6 +26,46 @@ describe("run policy", () => {
 
   it("queues when two batches are already running", () => {
     expect(decideBatchLaunch(2)).toBe("queued")
+  })
+})
+
+describe("pickViewingRunId", () => {
+  const runs = [
+    { _id: "r1", status: "complete" as const, createdAt: 1 },
+    { _id: "r2", status: "running" as const, createdAt: 2 },
+    { _id: "r3", status: "queued" as const, createdAt: 3 },
+  ]
+
+  it("prefers the running run by default", () => {
+    expect(pickViewingRunId(runs)).toBe("r2")
+  })
+
+  it("falls back to the first run when every run finished", () => {
+    const finished = [
+      { _id: "r1", status: "complete" as const, createdAt: 1 },
+      { _id: "r2", status: "complete" as const, createdAt: 2 },
+    ]
+    expect(pickViewingRunId(finished)).toBe("r1")
+  })
+})
+
+describe("defaultBatchView", () => {
+  it("opens compare when every run has finished", () => {
+    expect(
+      defaultBatchView([
+        { status: "complete", createdAt: 1 },
+        { status: "complete", createdAt: 2 },
+      ]),
+    ).toBe("compare")
+  })
+
+  it("opens clips while any run is still active", () => {
+    expect(
+      defaultBatchView([
+        { status: "complete", createdAt: 1 },
+        { status: "running", createdAt: 2 },
+      ]),
+    ).toBe("clips")
   })
 })
 

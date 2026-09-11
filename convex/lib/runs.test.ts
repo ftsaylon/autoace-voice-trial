@@ -95,12 +95,12 @@ describe("pickViewingRun", () => {
     expect(pickViewingRun(idle)?._id).toBe("r2")
   })
 
-  it("falls back to the latest run when every run finished", () => {
+  it("falls back to the first run when every run finished", () => {
     const finished = [
       { _id: "r1", createdAt: 1, status: "complete" },
       { _id: "r2", createdAt: 2, status: "complete" },
     ] as unknown as Doc<"runs">[]
-    expect(pickViewingRun(finished)?._id).toBe("r2")
+    expect(pickViewingRun(finished)?._id).toBe("r1")
   })
 
   it("honors an explicit run id when it exists", () => {
