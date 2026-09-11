@@ -22,16 +22,16 @@ function window(
 }
 
 describe("windowBounds", () => {
-  it("returns a single window for clips at or under 240s", () => {
+  it("returns a single window for typical production calls (at or under 15 min)", () => {
     expect(windowBounds(240)).toEqual([{ startSec: 0, endSec: 240 }]);
+    expect(windowBounds(900)).toEqual([{ startSec: 0, endSec: 900 }]);
   });
 
-  it("splits clips longer than 240s into non-overlapping 20s windows", () => {
-    const bounds = windowBounds(260);
+  it("splits only extreme-duration clips into non-overlapping 20s windows", () => {
+    const bounds = windowBounds(920);
     expect(bounds[0]).toEqual({ startSec: 0, endSec: 20 });
-    expect(bounds[bounds.length - 1]).toEqual({ startSec: 240, endSec: 260 });
-    expect(bounds).toHaveLength(13);
     expect(bounds[1]).toEqual({ startSec: 20, endSec: 40 });
+    expect(bounds[bounds.length - 1]).toEqual({ startSec: 900, endSec: 920 });
   });
 });
 

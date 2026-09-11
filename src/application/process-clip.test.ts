@@ -91,6 +91,43 @@ describe("ProcessClip", () => {
     });
   });
 
+  it("sends a typical multi-minute clip to the classifier once", async () => {
+    const repo = new MemoryBatchRepository();
+    const store = new MemoryAudioStore();
+    const batch = await createBatch({
+      repo,
+      store,
+      files: [
+        {
+          name: "labels.csv",
+          bytes: new TextEncoder().encode("name,result_json\ncall_long.wav,\n"),
+        },
+        { name: "call_long.wav", bytes: wavBytes() },
+      ],
+    });
+    let classifyCalls = 0;
+    const classifier: SemanticClassifier = {
+      async classify() {
+        classifyCalls += 1;
+        return ok(fakeSemantic);
+      },
+    };
+    const acoustic: AcousticAnalyzer = {
+      ...fakeAcoustic,
+      async measure() {
+        return ok(acousticMeasurements({ ...fakeMeasured, durationSec: 172 }));
+      },
+    };
+    await processBatchToCompletion({
+      repo,
+      store,
+      acoustic,
+      classifier,
+      batchId: batch.id,
+    });
+    expect(classifyCalls).toBe(1);
+  });
+
   it("completing a succeeded clip twice does not replace the prediction", async () => {
     const repo = new MemoryBatchRepository();
     const store = new MemoryAudioStore();

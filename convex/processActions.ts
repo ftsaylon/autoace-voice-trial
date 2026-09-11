@@ -193,6 +193,8 @@ export const processNext = internalAction({
 
     await Promise.all(claims.map((claimed) => processClaim(ctx, claimed)))
 
+    // Chain the next round so the in-flight pool of up to 4 stays filled.
+
     await ctx.scheduler.runAfter(0, internal.processActions.processNext, {
       batchId: args.batchId,
     })

@@ -11,7 +11,7 @@ Gold `result_json` never enters a prompt.
 Every method runs `processClip`.
 
 1. ffmpeg decodes the clip as stereo 16 kHz PCM, then `measureStereo` extracts full-clip acoustics (mix-down after the stereo probe).
-2. Clips longer than 240 s split into non-overlapping 20 s windows. Shorter clips are one Gemini request.
+2. Typical production calls (up to 15 min / `WINDOW_FULL_CLIP_MAX_SEC` 900 s) are one Gemini request. Only longer clips split into non-overlapping 20 s windows.
 3. The method's classifier labels each window.
 4. `aggregateWindows` reduces windows. Tone votes are duration-weighted. Ties prefer higher window confidence, then AutoAce enum order (not tone severity). Overlap needs a duration majority. A single window keeps the classifier confidence; several windows mix agreement with mean winning-tone confidence.
 5. If `fuseQualityAndSilence` is true, `fuse()` writes silence from DSP, takes the worse of Gemini vs DSP quality, and applies noise-family / overlap / intensity-floor rules. It never changes `emotional_tone`. One retry on invalid structured output (same model, thinking `minimal`) is not a second ensemble call.
@@ -48,7 +48,7 @@ Prompt: AutoAce field definitions, whole-clip tone ladder, anti-confound rules, 
 
 Thinking: `minimal`.
 
-Cost: about $0.0014 per audio minute of **billed** audio through 31 Dec 2026 (Gemini 3.6 Flash intro $0.75 / 1M input). From 1 Jan 2027 the same audio is about $0.0029 / min at standard $1.50 / 1M. One request per clip under 240 s. Gemini bills audio at about 32 tokens per second. Thinking stays `minimal`.
+Cost: about $0.0014 per audio minute of **billed** audio through 31 Dec 2026 (Gemini 3.6 Flash intro $0.75 / 1M input). From 1 Jan 2027 the same audio is about $0.0029 / min at standard $1.50 / 1M. One request per clip under 15 min. Gemini bills audio at about 32 tokens per second. Thinking stays `minimal`. We do not upgrade the model: leftover headroom cannot pay for Pro, thinking above `minimal`, or a second audio call.
 
 Sources:
 
@@ -78,7 +78,7 @@ Model: `gemini-3.6-flash-lexical`.
 
 Owns: tone and intensity from the customer's words after an implicit transcript. Noise and overlap may use the audio, then `fuse()`. Quality and silence from `fuse()`.
 
-Cost: about $0.0014 per audio minute. One audio call under 240 s.
+Cost: about $0.0014 per audio minute. One audio call under 15 min.
 
 Source: AlloSat call-center results in [arXiv:2310.04481](https://arxiv.org/html/2310.04481). Linguistic content was the main contributor to satisfaction and generalized better than acoustics.
 

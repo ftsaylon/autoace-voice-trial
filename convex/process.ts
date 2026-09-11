@@ -3,7 +3,7 @@ import { internalMutation, type MutationCtx } from "./_generated/server"
 import { internal } from "./_generated/api"
 import type { Doc } from "./_generated/dataModel"
 import { CLAIM_STALE_MS, MAX_CLIP_COUNT } from "../src/domain/constants"
-import { hasPendingRuns } from "../src/application/run-policy"
+import { hasPendingRuns, inFlightToSchedule } from "../src/application/run-policy"
 import { MAX_RUNNING_BATCHES } from "./lib/constants"
 import { formatStoredAnalyzeError } from "../src/domain/errors"
 import { methodValidator } from "./schema"
@@ -122,16 +122,34 @@ export const claimNextRound = internalMutation({
     runs = await listRuns(ctx, args.batchId)
 
     const claims = []
+    let liveRunning = 0
     for (const run of runs) {
       if (run.status !== "running") {
         continue
       }
-      const claimed = await claimFromRun(ctx, batch, run, now, staleBefore)
-      if (claimed) {
-        claims.push(claimed)
+      const runningRows = await ctx.db
+        .query("clipResults")
+        .withIndex("by_run_and_state", (q) =>
+          q.eq("runId", run._id).eq("state", "running"),
+        )
+        .take(MAX_CLIP_COUNT)
+      liveRunning += runningRows.filter(
+        (row) => row.claimedAt === undefined || row.claimedAt >= staleBefore,
+      ).length
+    }
+    for (const run of runs) {
+      if (run.status !== "running") {
         continue
       }
-      await completeRunIfIdle(ctx, run)
+      while (inFlightToSchedule(liveRunning, 1) > 0) {
+        const claimed = await claimFromRun(ctx, batch, run, now, staleBefore)
+        if (!claimed) {
+          await completeRunIfIdle(ctx, run)
+          break
+        }
+        claims.push(claimed)
+        liveRunning += 1
+      }
     }
     return claims
   },

@@ -10,7 +10,7 @@ Citations for the extractor and fusion rules are listed in full in [METHODS.md](
 
 **Prosody control.** Same decode. Tone comes from F0 range, speaking-rate bursts, and HNR (Eyben et al. 2016; Boersma 1993), not RMS. Noise uses the shared family. Overlap stays false in the classifier; `fuse()` may still set stereo overlap. Cost is $0. It still cannot name TV versus sharp static.
 
-**Fusion (production).** Gemini 3.6 Flash audio with constrained decoding against a Zod schema. The prompt quotes AutoAce field definitions, a whole-clip tone ladder, anti-confound rules, perceptual `audio_quality`, and DSP labels `noise_family` / `overlap_evidence` only — not SNR, RMS, or filename. The file part is always `clip.wav`. Clips up to 240 s are one request. Longer clips use non-overlapping 20 s windows. `fuse()` writes silence from DSP, takes the worse of Gemini vs DSP quality, drops only low-severity generic chatter on a positive `clean` residual (named events such as television stay), recovers static from sustained unvoiced SFM without rewriting television, and can set stereo overlap. Dual-mono overlap stays with Gemini; prompt `none` is split-channel context, not a veto. It never changes `emotional_tone`. Invalid structured output retries once. Production pins `gemini-3.6-flash` with thinking `minimal`.
+**Fusion (production).** Gemini 3.6 Flash audio with constrained decoding against a Zod schema. The prompt quotes AutoAce field definitions, a whole-clip tone ladder, anti-confound rules, perceptual `audio_quality`, and DSP labels `noise_family` / `overlap_evidence` only — not SNR, RMS, or filename. The file part is always `clip.wav`. Typical production calls (up to 15 min) are one request. Longer clips use non-overlapping 20 s windows. `fuse()` writes silence from DSP, takes the worse of Gemini vs DSP quality, drops only low-severity generic chatter on a positive `clean` residual (named events such as television stay), recovers static from sustained unvoiced SFM without rewriting television, and can set stereo overlap. Dual-mono overlap stays with Gemini; prompt `none` is split-channel context, not a veto. It never changes `emotional_tone`. Invalid structured output retries once. Production pins `gemini-3.6-flash` with thinking `minimal`.
 
 **Lexical experiment.** Same Gemini model and cost. The prompt requires a customer transcript first, then tone from the words (AlloSat / Deschamps-Berger et al., arXiv:2310.04481). Quality, silence, and DSP noise/overlap gates still come from `fuse()`.
 
@@ -41,7 +41,7 @@ On every method except `gemini_only`:
 
 ## Cost
 
-Gemini bills audio at about 32 tokens per second, or 1920 tokens per minute. Gemini 3.6 Flash intro input is $0.75 / 1M tokens through 31 Dec 2026, so audio alone is about **$0.0014 per audio minute**, plus a small structured-output completion. From 1 Jan 2027 standard input is $1.50 / 1M (~$0.0029 / min). Both stay under the $0.003 / min ceiling if thinking stays at `minimal` **and** typical calls are one request (≤ 240 s, no overlapping windows). `fusion`, `lexical`, and `gemini_only` each send audio once per window. A two-call ensemble is not offered. One retry on invalid JSON is the same SKU and stays under the ceiling if rare. `gemini-3.8-flash` is not the production pin: `minimal` thinking is unsupported and default medium thinking is billed as output.
+Gemini bills audio at about 32 tokens per second, or 1920 tokens per minute. Gemini 3.6 Flash intro input is $0.75 / 1M tokens through 31 Dec 2026, so audio alone is about **$0.0014 per audio minute**, plus a small structured-output completion. From 1 Jan 2027 standard input is $1.50 / 1M (~$0.0029 / min). Both stay under the $0.003 / min ceiling if thinking stays at `minimal` **and** typical calls are one request (≤ 15 min, no overlapping windows). We do not upgrade the model: leftover headroom cannot pay for Pro, thinking above `minimal`, or a second audio call. `fusion`, `lexical`, and `gemini_only` each send audio once per window. A two-call ensemble is not offered. One retry on invalid JSON is the same SKU and stays under the ceiling if rare. `gemini-3.8-flash` is not the production pin: `minimal` thinking is unsupported and default medium thinking is billed as output.
 
 Audio leaves AutoAce infrastructure: Convex stores the bytes, Google receives windows for Gemini methods. Retention follows those providers' policies. Disclose that on evaluation.
 
@@ -49,9 +49,9 @@ If `GOOGLE_GENERATIVE_AI_API_KEY` is missing on the Convex deployment, Gemini me
 
 ## Latency and concurrency
 
-On this machine the acoustic baseline processed the three labeled calls (31 s + 35 s + 172 s) in **1.91 seconds** wall time in an earlier decode. Gemini wall time is one network round trip per **clip** under 240 s once a key is set. Re-measure with `npx tsx experiments/run-comparison.ts /path/to/folder` after a paid key is available.
+On this machine the acoustic baseline processed the three labeled calls (31 s + 35 s + 172 s) in **1.91 seconds** wall time in an earlier decode. Fusion wall time is estimated as **`~ceil(n / 4) × one Gemini RTT`** (up to four in-flight clips per batch, one Gemini call per typical clip). Windows inside a clip stay serial only on the >15 min fallback. Re-measure with `npx tsx experiments/run-comparison.ts /path/to/folder` after a paid key is available.
 
-The worker is a Convex scheduler chain: one clip at a time per batch, up to two batches running, extras queued. Navigating the app does not pause jobs.
+The worker claims up to four clips per round in one Convex action, up to two batches running, extras queued. Navigating the app does not pause jobs.
 
 ## Validation
 

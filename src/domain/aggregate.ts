@@ -1,9 +1,9 @@
 /**
  * Windowing and reduction for Gemini methods.
  *
- * Clips ≤ 240 s are one request so billed audio stays under $0.003/min
- * (Gemini audio ≈ 32 tokens/s). Longer clips use non-overlapping 20 s
- * windows. Tone votes are duration-weighted. Ties prefer window
+ * Clips ≤ 900 s (15 min) are one request so billed audio stays 1× source
+ * and under $0.003/min (Gemini audio ≈ 32 tokens/s). Longer clips use
+ * non-overlapping 20 s windows. Tone votes are duration-weighted. Ties prefer window
  * confidence, then AutoAce enum order — not tone severity. Overlap needs
  * a duration majority so one false-positive window cannot set the clip.
  *
