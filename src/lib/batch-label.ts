@@ -30,12 +30,8 @@ export const formatBatchLabel = (
   batch: { name: string; datasetName?: string | null },
   options?: { variant?: BatchLabelVariant },
 ): string => {
-  const variant = options?.variant ?? "full"
   const { codeLabel, datasetName } = getBatchLabelParts(batch, options)
   if (datasetName) {
-    if (variant === "compact") {
-      return `${datasetName} ${codeLabel}`
-    }
     return `${codeLabel} · ${datasetName}`
   }
   return codeLabel

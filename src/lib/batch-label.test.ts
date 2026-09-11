@@ -23,13 +23,13 @@ describe("batch label", () => {
     ).toBe("Batch #00032 · acme-calls")
   })
 
-  it("uses compact sidebar labels with dataset before batch number", () => {
+  it("uses compact sidebar labels", () => {
     expect(
       formatBatchLabel(
         { name: "00032", datasetName: "acme-calls" },
         { variant: "compact" },
       ),
-    ).toBe("acme-calls #00032")
+    ).toBe("#00032 · acme-calls")
   })
 
   it("splits label parts for tight UI rendering", () => {

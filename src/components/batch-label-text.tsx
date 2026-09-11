@@ -38,33 +38,6 @@ export const BatchLabelText = ({
     )
   }
 
-  if (variant === "compact") {
-    return (
-      <span
-        className={cn(
-          "flex w-full min-w-0 max-w-full items-baseline gap-1.5 overflow-hidden",
-          className,
-        )}
-        title={fullLabel}
-      >
-        <span
-          className={cn("min-w-0 flex-1 truncate", datasetClassName)}
-          title={datasetName}
-        >
-          {datasetName}
-        </span>
-        <span
-          className={cn(
-            "shrink-0 font-mono tabular-nums tracking-tight",
-            codeClassName,
-          )}
-        >
-          {codeLabel}
-        </span>
-      </span>
-    )
-  }
-
   return (
     <span
       className={cn(
