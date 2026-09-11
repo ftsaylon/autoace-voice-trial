@@ -36,15 +36,36 @@ describe("windowBounds", () => {
 });
 
 describe("aggregateWindows", () => {
+  it("keeps classifier confidence on a single window", () => {
+    const prediction = aggregateWindows([window(0, "upset", "high", 0.7)]);
+    expect(prediction.emotional_tone).toBe("upset");
+    expect(prediction.confidence).toBeCloseTo(0.7);
+  });
+
   it("majority-votes tone and takes max intensity of the winning tone", () => {
     const prediction = aggregateWindows([
-      window(0, "neutral", "low"),
-      window(15, "frustrated", "medium"),
-      window(30, "frustrated", "high"),
+      window(0, "neutral", "low", 0.9),
+      window(15, "frustrated", "medium", 0.6),
+      window(30, "frustrated", "high", 0.6),
     ]);
     expect(prediction.emotional_tone).toBe("frustrated");
     expect(prediction.emotional_intensity).toBe("high");
-    expect(prediction.confidence).toBeCloseTo(2 / 3);
+    expect(prediction.confidence).toBeCloseTo((40 / 60) * 0.6);
+  });
+
+  it("weights tone votes by window duration", () => {
+    const prediction = aggregateWindows([
+      {
+        ...window(0, "neutral", "low", 0.9),
+        endSec: 40,
+      },
+      {
+        ...window(40, "frustrated", "medium", 0.9),
+        endSec: 50,
+      },
+    ]);
+    expect(prediction.emotional_tone).toBe("neutral");
+    expect(prediction.confidence).toBeCloseTo((40 / 50) * 0.9);
   });
 
   it("breaks a tone tie toward higher window confidence, not severity", () => {
@@ -67,7 +88,7 @@ describe("aggregateWindows", () => {
     const prediction = aggregateWindows([
       {
         ...window(0, "neutral", "medium"),
-        background_noise: presentNoise("TV", "low"),
+        background_noise: presentNoise("television", "low"),
       },
       {
         ...window(15, "neutral", "medium"),
@@ -80,6 +101,28 @@ describe("aggregateWindows", () => {
       presentNoise("sharp static", "medium"),
     );
     expect(prediction.speaker_overlap_present).toBe(false);
+  });
+
+  it("prefers the longer window when noise severity is tied", () => {
+    const prediction = aggregateWindows([
+      {
+        ...window(0, "neutral", "medium"),
+        endSec: 8,
+        background_noise: presentNoise("keyboard typing", "medium"),
+      },
+      {
+        ...window(8, "neutral", "medium"),
+        endSec: 28,
+        background_noise: presentNoise("television", "medium"),
+      },
+    ]);
+    expect(prediction.background_noise).toEqual(
+      presentNoise("television", "medium"),
+    );
+  });
+
+  it("throws when there are no windows", () => {
+    expect(() => aggregateWindows([])).toThrow(/at least one window/);
   });
 
   it("requires a majority of windows for overlap", () => {

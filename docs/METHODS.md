@@ -13,8 +13,8 @@ Every method runs `processClip`.
 1. ffmpeg decodes the clip as stereo 16 kHz PCM, then `measureStereo` extracts full-clip acoustics (mix-down after the stereo probe).
 2. Clips longer than 240 s split into non-overlapping 20 s windows. Shorter clips are one Gemini request.
 3. The method's classifier labels each window.
-4. `aggregateWindows` reduces windows. Tone uses plurality. Ties prefer higher window confidence, then AutoAce enum order (not tone severity). Overlap needs a majority of windows.
-5. If `fuseQualityAndSilence` is true, `fuse()` writes quality and silence from DSP and applies noise-family / overlap / intensity-floor rules. It never changes `emotional_tone`.
+4. `aggregateWindows` reduces windows. Tone votes are duration-weighted. Ties prefer higher window confidence, then AutoAce enum order (not tone severity). Overlap needs a duration majority. A single window keeps the classifier confidence; several windows mix agreement with mean winning-tone confidence.
+5. If `fuseQualityAndSilence` is true, `fuse()` writes silence from DSP, takes the worse of Gemini vs DSP quality, and applies noise-family / overlap / intensity-floor rules. It never changes `emotional_tone`. One retry on invalid structured output (same model, thinking `minimal`) is not a second ensemble call.
 
 Quality cutoffs: energy SNR below 5 dB or clip fraction at or above 0.05 is `severely_impaired`. Slight impairment requires both energy SNR below 15 dB **and** WADA-SNR below 15 dB, or clip fraction at or above 0.01. Long silence is 8 s, with a short VAD hangover so clicks do not split a pause.
 
@@ -32,7 +32,7 @@ Shared code: `src/adapters/acoustic/measure-acoustics.ts`. No openSMILE binary.
 | Unvoiced zero-crossing rate | Broadband residue | Rabiner & Schafer; ICSI SAD |
 | Stereo energy + Pearson correlation | Overlap when both channels active and ρ is low | Xiao, Ghosh, Georgiou & Narayanan, ICASSP 2011; Ghosh et al., Interspeech 2010; Pfau, Ellis & Stolcke, ASRU 2001 |
 
-DSP noise family (not clip names): `clean` (high HNR, low unvoiced SFM — a positive single-talker class), `static` (sustained unvoiced high SFM, fraction ≥ 0.5 so a few fricatives do not count), `uncertain` (no residual evidence). `speech_like` is reserved; the mix's 4 Hz peak is the foreground talker and is not treated as TV. Overlap evidence: `none`, `stereo_both_active`, `harmonicity` (DSP does not set overlap from harmonicity alone). Dual-mono (ρ ≥ 0.95) ignores channels. On `clean`, `fuse()` drops only weak or generic Gemini noise (low severity or chatter/ambience); named medium/high events (TV, music, keyboard) stay. It recovers `sharp static` on `static`, and otherwise trusts Gemini. Stereo both-active forces overlap; a `clean` residual does not veto Gemini overlap. Prompt `overlap_evidence: none` means no split-channel evidence, not a veto.
+DSP noise family (not clip names): `clean` (high HNR, low unvoiced SFM — a positive single-talker class), `static` (sustained unvoiced high SFM, fraction ≥ 0.5 so a few fricatives do not count), `uncertain` (no residual evidence). `speech_like` is reserved; the mix's 4 Hz peak is the foreground talker and is not treated as television. Overlap evidence: `none`, `stereo_both_active`, `harmonicity` (DSP does not set overlap from harmonicity alone). Dual-mono (ρ ≥ 0.95) ignores channels. On `clean`, `fuse()` drops only **low-severity generic chatter/ambience**; named events (television, music, keyboard) stay, including low-severity named noise. It recovers `sharp static` on `static` unless Gemini already named a non-static event such as television. Stereo both-active forces overlap; a `clean` residual does not veto Gemini overlap. Prompt `overlap_evidence: none` means no split-channel evidence, not a veto. `normalizeNoiseType` maps `TV`/`tv` to `television`.
 
 ## fusion
 
@@ -42,9 +42,9 @@ Classifier: `GeminiClassifier` with `FUSION_PROMPT`.
 
 Model: `gemini-3.6-flash`.
 
-Owns: tone from Gemini. Intensity may be floored by F0 range (Juslin & Laukka 2003; Scherer) or by the schema (upset/distressed is not low) but tone is never taken from RMS or F0. Noise from Gemini, then `fuse()` drops only weak/generic Gemini noise on `clean`, recovers static, and can set stereo overlap. Dual-mono overlap stays with Gemini. Quality and silence from ffmpeg.
+Owns: tone from Gemini. Intensity may be floored by F0 range (Juslin & Laukka 2003; Scherer) or by the schema (upset/distressed is not low) but tone is never taken from RMS or F0. Noise from Gemini, then `fuse()` drops only low-severity generic chatter on `clean`, recovers static without rewriting television, and can set stereo overlap. Dual-mono overlap stays with Gemini. Quality is the worse of Gemini vs DSP so echo/muffled/robotic/packet-loss can land. Silence from ffmpeg (8 s).
 
-Prompt: AutoAce field definitions, whole-clip tone ladder, anti-confound rules, and DSP labels `noise_family` / `overlap_evidence` only. No SNR, RMS, or filename. File part is always `clip.wav`.
+Prompt: AutoAce field definitions, whole-clip tone ladder, anti-confound rules, `audio_quality` (perceptual impairments), and DSP labels `noise_family` / `overlap_evidence` only. No SNR, RMS, or filename. Do not set long silence. File part is always `clip.wav`. Invalid structured output retries once.
 
 Thinking: `minimal`.
 

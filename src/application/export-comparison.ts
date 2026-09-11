@@ -3,6 +3,7 @@ import {
   SCORE_METRIC_KEYS,
   SCORE_METRIC_LABEL,
   agreementRate,
+  compareFieldForMetric,
   comparisonCsv,
   confusionMatrixForRun,
   disagreementCounts,
@@ -67,20 +68,11 @@ export const accuracyByFieldCsv = (
   const headers = ["metric", "agreement_pct", "agreed", "compared"]
   const lines = SCORE_METRIC_KEYS.filter((key) => key !== "emotional_tone_f1").map(
     (key) => {
-      const field: CompareFieldKey =
-        key === "emotional_tone"
-          ? "emotional_tone"
-          : key === "background_noise_present"
-            ? "background_noise_present"
-            : key === "audio_quality"
-              ? "audio_quality"
-              : key === "speaker_overlap_present"
-                ? "speaker_overlap_present"
-                : "long_silence_present"
+      const field = compareFieldForMetric(key)
       const stats = agreementRate(
         clips,
         runs.map((run) => run.id),
-        field,
+        field ?? "emotional_tone",
       )
       return csvRow([
         SCORE_METRIC_LABEL[key],

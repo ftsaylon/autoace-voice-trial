@@ -3,9 +3,13 @@
  *
  * Clips ≤ 240 s are one request so billed audio stays under $0.003/min
  * (Gemini audio ≈ 32 tokens/s). Longer clips use non-overlapping 20 s
- * windows. Tone ties prefer window confidence, then AutoAce enum order —
- * not tone severity. Overlap needs a strict majority so one false-positive
- * window cannot set the clip.
+ * windows. Tone votes are duration-weighted. Ties prefer window
+ * confidence, then AutoAce enum order — not tone severity. Overlap needs
+ * a duration majority so one false-positive window cannot set the clip.
+ *
+ * Single-window clips keep the classifier confidence. Multi-window clips
+ * mix duration-weighted tone agreement with the mean winning-tone
+ * confidence so the field is not forced to 1.
  */
 import {
   INTENSITY_RANK,
@@ -44,6 +48,13 @@ export function windowBounds(durationSec: number): { startSec: number; endSec: n
   return windows;
 }
 
+export function windowDurationSec(window: {
+  startSec: number;
+  endSec: number;
+}): number {
+  return Math.max(window.endSec - window.startSec, 1e-6);
+}
+
 function maxIntensity(values: Intensity[]): Intensity {
   let best: Intensity = "low";
   for (const value of values) {
@@ -65,18 +76,22 @@ function winningQuality(windows: WindowPrediction[]): AudioQuality {
 }
 
 function winningTone(windows: WindowPrediction[]): EmotionalTone {
-  const counts = new Map<EmotionalTone, number>();
+  const weights = new Map<EmotionalTone, number>();
   for (const window of windows) {
-    counts.set(window.emotional_tone, (counts.get(window.emotional_tone) ?? 0) + 1);
+    const duration = windowDurationSec(window);
+    weights.set(
+      window.emotional_tone,
+      (weights.get(window.emotional_tone) ?? 0) + duration,
+    );
   }
-  let bestCount = 0;
+  let bestWeight = 0;
   const tied: EmotionalTone[] = [];
-  for (const [tone, count] of counts) {
-    if (count > bestCount) {
-      bestCount = count;
+  for (const [tone, weight] of weights) {
+    if (weight > bestWeight) {
+      bestWeight = weight;
       tied.length = 0;
       tied.push(tone);
-    } else if (count === bestCount) {
+    } else if (weight === bestWeight) {
       tied.push(tone);
     }
   }
@@ -107,6 +122,33 @@ function winningTone(windows: WindowPrediction[]): EmotionalTone {
   return winner;
 }
 
+function clipConfidence(
+  windows: WindowPrediction[],
+  tone: EmotionalTone,
+): number {
+  if (windows.length === 1) {
+    return windows[0]!.confidence;
+  }
+  const total = windows.reduce(
+    (sum, window) => sum + windowDurationSec(window),
+    0,
+  );
+  const matching = windows.filter((window) => window.emotional_tone === tone);
+  const matchDuration = matching.reduce(
+    (sum, window) => sum + windowDurationSec(window),
+    0,
+  );
+  const agreement = total <= 0 ? 0 : matchDuration / total;
+  const meanWinning =
+    matchDuration <= 0
+      ? 0
+      : matching.reduce(
+          (sum, window) => sum + window.confidence * windowDurationSec(window),
+          0,
+        ) / matchDuration;
+  return Math.min(1, Math.max(0, agreement * meanWinning));
+}
+
 export function aggregateWindows(windows: WindowPrediction[]): ClipPrediction {
   if (windows.length === 0) {
     throw new Error("aggregateWindows requires at least one window");
@@ -121,9 +163,15 @@ export function aggregateWindows(windows: WindowPrediction[]): ClipPrediction {
   if (noisy.length > 0) {
     let chosen = noisy[0]!;
     for (const window of noisy) {
+      const severity = NOISE_SEVERITY_RANK[window.background_noise.severity];
+      const chosenSeverity = NOISE_SEVERITY_RANK[chosen.background_noise.severity];
+      if (severity > chosenSeverity) {
+        chosen = window;
+        continue;
+      }
       if (
-        NOISE_SEVERITY_RANK[window.background_noise.severity] >
-        NOISE_SEVERITY_RANK[chosen.background_noise.severity]
+        severity === chosenSeverity &&
+        windowDurationSec(window) > windowDurationSec(chosen)
       ) {
         chosen = window;
       }
@@ -135,16 +183,20 @@ export function aggregateWindows(windows: WindowPrediction[]): ClipPrediction {
       );
     }
   }
-  const matches = windows.filter((window) => window.emotional_tone === tone).length;
+  const totalDuration = windows.reduce(
+    (sum, window) => sum + windowDurationSec(window),
+    0,
+  );
+  const overlapDuration = windows
+    .filter((window) => window.speaker_overlap_present)
+    .reduce((sum, window) => sum + windowDurationSec(window), 0);
   return {
     emotional_tone: tone,
     emotional_intensity: intensity,
     background_noise,
     audio_quality: winningQuality(windows),
-    speaker_overlap_present:
-      windows.filter((window) => window.speaker_overlap_present).length * 2 >
-      windows.length,
+    speaker_overlap_present: overlapDuration * 2 > totalDuration,
     long_silence_present: windows.some((window) => window.long_silence_present),
-    confidence: matches / windows.length,
+    confidence: clipConfidence(windows, tone),
   };
 }

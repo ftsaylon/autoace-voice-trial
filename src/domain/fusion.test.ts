@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { toAutoAceJson } from "./codec";
-import { fuse } from "./fusion";
+import { fuse, normalizeNoiseType } from "./fusion";
 import {
   acousticMeasurements,
   noNoise,
@@ -92,7 +92,15 @@ describe("fusion", () => {
       longDeadAir,
     );
     expect(fused.long_silence_present).toBe(true);
-    expect(fused.background_noise).toEqual(presentNoise("TV", "medium"));
+    expect(fused.background_noise).toEqual(presentNoise("television", "medium"));
+  });
+
+  it("keeps low-severity television on a clean residual", () => {
+    const fused = fuse(
+      { ...semanticSatisfied, background_noise: presentNoise("TV", "low") },
+      loudClean,
+    );
+    expect(fused.background_noise).toEqual(presentNoise("television", "low"));
   });
 
   it("gates low office chatter when DSP family is clean", () => {
@@ -104,28 +112,67 @@ describe("fusion", () => {
     expect(fused.emotional_tone).toBe("satisfied");
   });
 
-  it("gates medium generic chatter on a clean residual", () => {
+  it("keeps medium office chatter on a clean residual", () => {
     const fused = fuse(
       { ...semanticSatisfied, background_noise: presentNoise("office chatter", "medium") },
       loudClean,
     );
-    expect(fused.background_noise).toEqual(noNoise);
+    expect(fused.background_noise).toEqual(presentNoise("office chatter", "medium"));
   });
 
-  it("keeps Gemini TV on a clean residual", () => {
+  it("aliases Gemini TV to television on a clean residual", () => {
     const fused = fuse(
       { ...semanticSatisfied, background_noise: presentNoise("TV", "medium") },
       loudClean,
     );
-    expect(fused.background_noise).toEqual(presentNoise("TV", "medium"));
+    expect(fused.background_noise).toEqual(presentNoise("television", "medium"));
   });
 
-  it("keeps Gemini TV when DSP family is uncertain", () => {
+  it("keeps Gemini television when DSP family is uncertain", () => {
     const fused = fuse(
-      { ...semanticSatisfied, background_noise: presentNoise("TV", "medium") },
+      { ...semanticSatisfied, background_noise: presentNoise("television", "medium") },
       acousticMeasurements({ noiseFamily: "uncertain" }),
     );
-    expect(fused.background_noise).toEqual(presentNoise("TV", "medium"));
+    expect(fused.background_noise).toEqual(presentNoise("television", "medium"));
+  });
+
+  it("does not rewrite television into static", () => {
+    const fused = fuse(
+      { ...semanticSatisfied, background_noise: presentNoise("television", "medium") },
+      acousticMeasurements({ noiseFamily: "static" }),
+    );
+    expect(fused.background_noise).toEqual(presentNoise("television", "medium"));
+  });
+
+  it("takes the worse of Gemini and DSP quality", () => {
+    const geminiSlight = fuse(
+      { ...semanticSatisfied, audio_quality: "slightly_impaired" },
+      loudClean,
+    );
+    expect(geminiSlight.audio_quality).toBe("slightly_impaired");
+    const dspSevere = fuse(
+      { ...semanticSatisfied, audio_quality: "clear" },
+      acousticMeasurements({ snrDb: 3, wadaSnrDb: 3, clipFraction: 0 }),
+    );
+    expect(dspSevere.audio_quality).toBe("severely_impaired");
+  });
+
+  it("still uses DSP for silence even when Gemini quality is worse", () => {
+    const fused = fuse(
+      {
+        ...semanticSatisfied,
+        audio_quality: "slightly_impaired",
+        long_silence_present: true,
+      },
+      acousticMeasurements({
+        snrDb: 22,
+        wadaSnrDb: 22,
+        clipFraction: 0,
+        longestSilenceSec: 3,
+      }),
+    );
+    expect(fused.audio_quality).toBe("slightly_impaired");
+    expect(fused.long_silence_present).toBe(false);
   });
 
   it("recovers sharp static when DSP family is static", () => {
@@ -212,5 +259,14 @@ describe("fusion", () => {
       acousticMeasurements({ snrDb: 8, wadaSnrDb: 22, clipFraction: 0 }),
     );
     expect(fused.audio_quality).toBe("clear");
+  });
+});
+
+describe("normalizeNoiseType", () => {
+  it("maps TV aliases to television and keeps unknown phrases", () => {
+    expect(normalizeNoiseType("TV")).toBe("television");
+    expect(normalizeNoiseType("tv program")).toBe("television");
+    expect(normalizeNoiseType("keyboard")).toBe("keyboard typing");
+    expect(normalizeNoiseType("wind")).toBe("wind");
   });
 });

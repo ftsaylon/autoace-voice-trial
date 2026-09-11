@@ -7,7 +7,8 @@
  *
  * Fusion context is DSP labels only (noise_family / overlap_evidence).
  * SNR, RMS, and filenames stay out so the model cannot map loudness to
- * frustration or clip identity to a label.
+ * frustration or clip identity to a label. Fusion asks for audio_quality
+ * so echo / muffled / robotic / packet-loss can land; long silence stays DSP.
  */
 import type { AcousticMeasurements } from "@/domain"
 
@@ -20,9 +21,11 @@ export const TONE_LADDER = `emotional_tone is the customer's primary stance acro
 
 emotional_intensity: low (subtle), medium (clear and sustained), high (strong, escalated). If the customer is clearly angry or distressed, intensity is usually high.`
 
-export const NOISE_AND_OVERLAP = `background_noise_present: true only if meaningful non-speech sound is audible. Barely perceptible artifacts do not count. Noise can be present while the recording itself is technically clear (static, TV, and chatter are events, not codec damage).
+export const AUDIO_QUALITY_DEF = `audio_quality: the technical quality of the recording, independent of emotion. Allowed: clear, slightly_impaired, severely_impaired. Consider distortion, clipping, echo, static, low volume, muffled speech, robotic audio, and packet loss.`
 
-background_noise_type: a short phrase for the dominant noise. Name what you hear. Do not default to office chatter. Use TV for television or a TV program. Use sharp static for electrical crackle, hiss, or pops. Other examples: road noise, keyboard typing, music, wind, mechanical. Empty string when no noise is present.
+export const NOISE_AND_OVERLAP = `background_noise_present: true only if meaningful non-speech sound is audible. Barely perceptible artifacts do not count. Noise can be present while the recording itself is technically clear (static, television, and chatter are events, not codec damage).
+
+background_noise_type: a short phrase for the dominant noise. Name what you hear. Prefer brief wording: office chatter, music, road noise, television, keyboard typing, wind, mechanical noise, sharp static. Do not default to office chatter. Empty string when no noise is present.
 
 background_noise_severity: none when no noise. Otherwise low (audible but does not interfere), medium (occasionally interferes), high (materially impairs the conversation).
 
@@ -44,9 +47,11 @@ ${TONE_LADDER}
 
 ${NOISE_AND_OVERLAP}
 
+${AUDIO_QUALITY_DEF}
+
 ${ANTI_CONFOUND_RULES}
 
-Do not set audio quality or long silence. Those come from a separate acoustic measurement.`
+Do not set long silence. That comes from a separate acoustic measurement.`
 
 export const LEXICAL_PROMPT = `You analyze production call-center audio between a customer and an agent.
 
@@ -70,7 +75,7 @@ ${TONE_LADDER}
 
 ${NOISE_AND_OVERLAP}
 
-audio_quality: the technical quality of the recording, independent of emotion. Allowed: clear, slightly_impaired, severely_impaired. Consider distortion, clipping, echo, static, low volume, muffled speech, robotic audio, and packet loss.
+${AUDIO_QUALITY_DEF}
 
 long_silence_present: true if the clip contains an unusually long period of silence or dead air that may indicate a call-flow or audio problem.
 
@@ -84,8 +89,8 @@ export const formatAcousticContext = (
     `- noise_family: ${acoustic.noiseFamily}`,
     `- overlap_evidence: ${acoustic.overlapEvidence}`,
     "If noise_family is uncertain, DSP found no electrical hiss. Only mark noise if a distinct non-speech event is clearly audible. Do not invent office chatter, traffic, or music from the talker alone.",
-    "If noise_family is clean, only report noise when a distinct non-speech event is clearly audible. Do not invent office chatter.",
-    "If noise_family is static, name the residual as sharp static unless you clearly hear a different hiss/crackle phrase.",
+    "If noise_family is clean, only report noise when a distinct non-speech event is clearly audible. Do not invent low office chatter.",
+    "If noise_family is static, a hiss or crackle residual is present. Prefer sharp static unless you clearly hear another named event such as television.",
     "If overlap_evidence is none, DSP found no split-channel overlap. Still true if two voices are simultaneous on this recording.",
     "If overlap_evidence is stereo_both_active, two independent channels are both active.",
     "If overlap_evidence is harmonicity, DSP saw mixed periodicity; adjacent turns are still not overlap. True only if two voices are simultaneous.",
@@ -93,10 +98,10 @@ export const formatAcousticContext = (
 }
 
 export const acousticForGeminiPrompt = (input: {
-  ownQualityAndSilence: boolean
+  skipAcousticContext: boolean
   acoustic?: AcousticMeasurements
 }): AcousticMeasurements | undefined => {
-  if (input.ownQualityAndSilence) {
+  if (input.skipAcousticContext) {
     return undefined
   }
   return input.acoustic

@@ -35,7 +35,7 @@ export const METHODS: Record<MethodId, MethodDefinition> = {
     needsGemini: true,
     costUsdPerMinute: 0.0014,
     description:
-      "Gemini 3.6 Flash classifies tone, intensity, noise, and overlap with thinking minimal. DSP owns silence, quality, a weak/generic clean-noise gate, static recovery, and stereo overlap. Use this for the hidden set.",
+      "Gemini 3.6 Flash classifies tone, intensity, noise, overlap, and quality with thinking minimal. DSP owns silence, a weak/generic clean-noise gate, static recovery, stereo overlap, and quality when SNR/clip is worse than Gemini. Use this for the hidden set.",
   },
   baseline: {
     id: "baseline",

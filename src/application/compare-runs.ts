@@ -25,10 +25,14 @@ export type CompareClipInput = {
 export const SCORE_METRIC_KEYS = [
   "emotional_tone",
   "emotional_tone_f1",
+  "emotional_intensity",
   "background_noise_present",
+  "background_noise_type",
+  "background_noise_severity",
   "audio_quality",
   "speaker_overlap_present",
   "long_silence_present",
+  "confidence",
 ] as const
 
 export type ScoreMetricKey = (typeof SCORE_METRIC_KEYS)[number]
@@ -36,10 +40,14 @@ export type ScoreMetricKey = (typeof SCORE_METRIC_KEYS)[number]
 export const SCORE_METRIC_LABEL: Record<ScoreMetricKey, string> = {
   emotional_tone: "Tone",
   emotional_tone_f1: "Tone F1",
+  emotional_intensity: "Intensity",
   background_noise_present: "Noise",
+  background_noise_type: "Noise type",
+  background_noise_severity: "Noise severity",
   audio_quality: "Quality",
   speaker_overlap_present: "Overlap",
   long_silence_present: "Silence",
+  confidence: "Confidence",
 }
 
 export const COMPARE_FIELDS = [
@@ -51,6 +59,7 @@ export const COMPARE_FIELDS = [
   { key: "audio_quality", label: "Quality" },
   { key: "speaker_overlap_present", label: "Overlap" },
   { key: "long_silence_present", label: "Long silence" },
+  { key: "confidence", label: "Confidence" },
 ] as const
 
 export type CompareFieldKey = (typeof COMPARE_FIELDS)[number]["key"]
@@ -84,7 +93,19 @@ export const fieldValue = (
       return prediction.speaker_overlap_present ? "true" : "false"
     case "long_silence_present":
       return prediction.long_silence_present ? "true" : "false"
+    case "confidence":
+      return prediction.confidence.toFixed(2)
   }
+}
+
+export const compareFieldForMetric = (
+  key: ScoreMetricKey,
+): CompareFieldKey | null => {
+  if (key === "emotional_tone_f1") {
+    return null
+  }
+  const match = COMPARE_FIELDS.find((field) => field.key === key)
+  return match?.key ?? null
 }
 
 export const scoresForRun = (clips: CompareClipInput[], runId: string): FieldScores | null => {

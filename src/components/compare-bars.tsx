@@ -14,6 +14,7 @@ import {
   SCORE_METRIC_KEYS,
   SCORE_METRIC_LABEL,
   agreementRate,
+  compareFieldForMetric,
   metricCorrect,
   metricValue,
   scoresForRun,
@@ -40,22 +41,11 @@ export const CompareBars = ({
   if (!labeled) {
     const data = SCORE_METRIC_KEYS.filter((key) => key !== "emotional_tone_f1").map(
       (key) => {
-        const field =
-          key === "emotional_tone"
-            ? "emotional_tone"
-            : key
+        const field = compareFieldForMetric(key)
         const stats = agreementRate(
           clips,
           runs.map((run) => run.id),
-          field === "emotional_tone"
-            ? "emotional_tone"
-            : field === "background_noise_present"
-              ? "background_noise_present"
-              : field === "audio_quality"
-                ? "audio_quality"
-                : field === "speaker_overlap_present"
-                  ? "speaker_overlap_present"
-                  : "long_silence_present",
+          field ?? "emotional_tone",
         )
         return {
           metric: SCORE_METRIC_LABEL[key],
@@ -71,7 +61,7 @@ export const CompareBars = ({
           Share of clips where every run matches on that field. No gold labels on this
           batch.
         </p>
-        <div className="mt-4 h-72">
+        <div className="mt-4 h-96">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={data}>
               <CartesianGrid vertical={false} strokeDasharray="3 3" />
@@ -121,7 +111,7 @@ export const CompareBars = ({
       <p className="mt-1 text-xs text-muted-foreground">
         Gold-labeled clips only. Hover a bar for correct/total.
       </p>
-      <div className="mt-4 h-72">
+      <div className="mt-4 h-96">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data}>
             <CartesianGrid vertical={false} strokeDasharray="3 3" />

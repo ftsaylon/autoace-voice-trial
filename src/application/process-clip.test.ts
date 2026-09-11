@@ -87,7 +87,7 @@ describe("ProcessClip", () => {
       ...fakeSemantic,
       long_silence_present: false,
       audio_quality: "clear",
-      confidence: 1,
+      confidence: 0.7,
     });
   });
 
