@@ -6,17 +6,17 @@ import { useLinkStatus } from "next/link"
 import { usePathname } from "next/navigation"
 import {
   AudioLinesIcon,
-  LayersIcon,
   LogOutIcon,
   MoonIcon,
   PanelLeftIcon,
-  ScrollTextIcon,
+  PlusIcon,
   SettingsIcon,
   SunIcon,
 } from "lucide-react"
 import { useAuthActions } from "@convex-dev/auth/react"
 import { useTheme } from "next-themes"
 import { cn } from "@/lib/utils"
+import { SidebarBatchHistory } from "@/components/sidebar-batch-history"
 import {
   Sidebar,
   SidebarContent,
@@ -40,18 +40,9 @@ import {
 } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
 
-const NAV = [
-  { href: "/batches", label: "Batches", icon: LayersIcon },
-  { href: "/logs", label: "Logs", icon: ScrollTextIcon },
-  { href: "/settings", label: "Settings", icon: SettingsIcon },
-]
+const isNewBatchActive = (pathname: string) => pathname === "/batches"
 
-const isNavActive = (href: string, pathname: string) => {
-  if (href === "/batches") {
-    return pathname === "/batches" || pathname.startsWith("/batches/")
-  }
-  return pathname === href
-}
+const isSettingsActive = (pathname: string) => pathname === "/settings"
 
 const NavLinkPending = () => {
   const { pending } = useLinkStatus()
@@ -100,6 +91,8 @@ export const AppShell = ({ children }: { children: React.ReactNode }) => {
   const { resolvedTheme, setTheme } = useTheme()
   const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false)
   const isDark = mounted && resolvedTheme === "dark"
+  const newBatchActive = isNewBatchActive(pathname)
+  const settingsActive = isSettingsActive(pathname)
 
   const handleSignOut = () => {
     void signOut()
@@ -134,41 +127,52 @@ export const AppShell = ({ children }: { children: React.ReactNode }) => {
             </span>
           </Link>
         </SidebarHeader>
-        <SidebarContent>
-          <SidebarGroup>
+        <SidebarContent className="gap-0 overflow-hidden">
+          <SidebarGroup className="py-0 group-data-[collapsible=icon]:px-1">
             <SidebarGroupContent>
               <SidebarMenu>
-                {NAV.map((item) => {
-                  const Icon = item.icon
-                  return (
-                    <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={isNavActive(item.href, pathname)}
-                        tooltip={item.label}
-                      >
-                        <Link href={item.href} prefetch={true}>
-                          <Icon />
-                          <span>{item.label}</span>
-                          <NavLinkPending />
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  )
-                })}
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    variant="outline"
+                    size="lg"
+                    isActive={newBatchActive}
+                    tooltip="New batch"
+                    className="font-medium"
+                  >
+                    <Link href="/batches" prefetch={true}>
+                      <PlusIcon />
+                      <span>New batch</span>
+                      <NavLinkPending />
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
+          <SidebarBatchHistory />
         </SidebarContent>
         <SidebarFooter className="group-data-[collapsible=icon]:px-1">
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton
-                tooltip={isDark ? "Switch to light mode" : "Switch to dark mode"}
+                asChild
+                isActive={settingsActive}
+                tooltip="Settings"
+              >
+                <Link href="/settings" prefetch={true}>
+                  <SettingsIcon />
+                  <span>Settings</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                tooltip={isDark ? "Light mode" : "Dark mode"}
                 onClick={handleToggleTheme}
               >
                 {isDark ? <SunIcon /> : <MoonIcon />}
-                <span>{isDark ? "Light" : "Dark"}</span>
+                <span>{isDark ? "Light mode" : "Dark mode"}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>

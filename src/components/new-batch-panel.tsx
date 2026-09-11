@@ -2,102 +2,72 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useConvexAuth, useMutation, useQuery } from "convex/react"
-import { LoaderCircleIcon, XIcon } from "lucide-react"
+import { CheckIcon, XIcon } from "lucide-react"
+import { Spinner } from "@/components/waveform-spinner"
 import { toast } from "sonner"
 import { api } from "@convex/_generated/api"
+import type { Id } from "@convex/_generated/dataModel"
 import { collectDroppedFiles } from "@/lib/collect-dropped-files"
-import { stashPendingUpload } from "@/lib/batch-upload-queue"
 import {
   clipsToUploads,
-  defaultBatchName,
   formatFileSize,
   isAbortError,
-  parseDroppedFiles,
-  parsedInputFromUploads,
   mergeSelectedBatchFiles,
+  parseDroppedFiles,
+  prepareClipsForDraft,
   type SelectedBatchFile,
 } from "@/lib/prepare-batch"
 import { MethodCards } from "@/components/method-cards"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import type { AnalysisMethod } from "@/application/methods"
+import { DEFAULT_METHOD, type MethodId } from "@/application/methods"
+import { relativeTime } from "@/lib/format-time"
+import { cn } from "@/lib/utils"
 
 export type NewBatchPanelProps = {
   initialFiles?: File[] | null
   onStarted?: (batchId: string) => void
-  onDiscard?: () => void
-  onBusyChange?: (busy: boolean) => void
-  onFilePickerOpen?: () => void
-  onFilePickerSettled?: () => void
-  discardRef?: React.MutableRefObject<(() => Promise<void>) | null>
 }
 
 export const NewBatchPanel = ({
   initialFiles = null,
   onStarted,
-  onDiscard,
-  onBusyChange,
-  onFilePickerOpen,
-  onFilePickerSettled,
-  discardRef,
 }: NewBatchPanelProps) => {
   const { isAuthenticated } = useConvexAuth()
-  const settings = useQuery(api.settings.get, isAuthenticated ? {} : "skip")
-  const createDraft = useMutation(api.batches.createDraft)
+  const savedDatasets = useQuery(api.datasets.list, isAuthenticated ? {} : "skip")
+  const generateUploadUrl = useMutation(api.batches.generateUploadUrl)
+  const createDataset = useMutation(api.datasets.create)
+  const createFromDataset = useMutation(api.batches.createFromDataset)
+  const startBatch = useMutation(api.batches.start)
+
+  const [selectedDatasetId, setSelectedDatasetId] = useState<Id<"datasets"> | null>(
+    null,
+  )
   const [dragging, setDragging] = useState(false)
   const [selected, setSelected] = useState<SelectedBatchFile[]>([])
-  const [method, setMethod] = useState<AnalysisMethod | null>(null)
+  const [methods, setMethods] = useState<MethodId[]>([DEFAULT_METHOD])
   const [errors, setErrors] = useState<string[]>([])
   const [starting, setStarting] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  )
   const initialHandled = useRef(false)
   const abortRef = useRef<AbortController | null>(null)
-  const transferredRef = useRef(false)
-  const startingRef = useRef(false)
   const runInFlightRef = useRef(false)
 
-  const selectedMethod: AnalysisMethod = method ?? settings?.defaultMethod ?? "fusion"
-
-  const setRunBusy = useCallback(
-    (busy: boolean) => {
-      startingRef.current = busy
-      setStarting(busy)
-      onBusyChange?.(busy)
-    },
-    [onBusyChange],
+  const selectedDataset = savedDatasets?.find(
+    (dataset) => dataset._id === selectedDatasetId,
   )
 
-  const handleDiscard = useCallback(async () => {
-    if (startingRef.current || transferredRef.current) {
-      return
-    }
-    abortRef.current?.abort()
-    setSelected([])
-    setErrors([])
-    onDiscard?.()
-  }, [onDiscard])
-
-  useEffect(() => {
-    if (discardRef) {
-      discardRef.current = handleDiscard
-    }
-    return () => {
-      if (discardRef) {
-        discardRef.current = null
-      }
-    }
-  }, [discardRef, handleDiscard])
-
-  useEffect(() => {
-    return () => {
-      onBusyChange?.(false)
-      abortRef.current?.abort()
-    }
-  }, [onBusyChange])
+  const clearDataset = () => {
+    setSelectedDatasetId(null)
+  }
 
   const handleAcceptFiles = (files: File[]) => {
-    if (startingRef.current || transferredRef.current) {
+    if (starting) {
       return
     }
+    setSelectedDatasetId(null)
     setSelected((current) => {
       const next = mergeSelectedBatchFiles(current, files)
       if (next.length === 0) {
@@ -124,13 +94,8 @@ export const NewBatchPanel = ({
     handleAcceptFiles(files)
   }
 
-  const handleFilePickerOpen = () => {
-    onFilePickerOpen?.()
-  }
-
   const handleFileInput = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.currentTarget.files ?? [])
-    onFilePickerSettled?.()
     if (files.length > 0) {
       handleAcceptFiles(files)
     }
@@ -141,32 +106,80 @@ export const NewBatchPanel = ({
     setSelected((current) => {
       const next = current.filter((file) => file.id !== id)
       if (next.length === 0) {
-        setErrors(["Add at least one file before running"])
+        setErrors([])
       }
       return next
     })
   }
 
-  const handleRun = async () => {
-    if (selected.length === 0 || starting || transferredRef.current) {
-      setErrors(["Add a ZIP or files with labels.csv before running"])
+  const handleSelectDataset = (datasetId: Id<"datasets">) => {
+    if (starting) {
       return
     }
-    if (runInFlightRef.current) {
+    if (selectedDatasetId === datasetId) {
+      clearDataset()
       return
     }
-    runInFlightRef.current = true
-    setRunBusy(true)
+    setSelectedDatasetId(datasetId)
+    setSelected([])
     setErrors([])
+  }
+
+  const launchBatch = useCallback(
+    async (datasetId: Id<"datasets">, parseIssues: string[]) => {
+      const batchId = await createFromDataset({
+        datasetId,
+        method: methods[0] ?? DEFAULT_METHOD,
+        methods,
+        parseIssues,
+      })
+      const result = await startBatch({
+        batchId,
+        methods,
+      })
+      if (result.reason === "queued") {
+        toast.message("Queued until another batch finishes")
+      }
+      onStarted?.(batchId)
+    },
+    [
+      createFromDataset,
+      methods,
+      onStarted,
+      startBatch,
+    ],
+  )
+
+  const handleRun = async () => {
+    if (starting || runInFlightRef.current) {
+      return
+    }
+    if (selectedDatasetId && selectedDataset) {
+      // saved dataset path
+    } else if (selected.length === 0) {
+      setErrors(["Add files or pick a recent dataset before running"])
+      return
+    }
+
+    runInFlightRef.current = true
+    setStarting(true)
+    setErrors([])
+    setUploadProgress(null)
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
+
     try {
+      if (selectedDatasetId && selectedDataset) {
+        await launchBatch(selectedDatasetId, selectedDataset.parseIssues)
+        return
+      }
+
       const parsed = await parseDroppedFiles(
         selected.map((item) => item.file),
         controller.signal,
       )
-      if (controller.signal.aborted || transferredRef.current) {
+      if (controller.signal.aborted) {
         return
       }
       if (parsed.clips.length === 0) {
@@ -175,122 +188,271 @@ export const NewBatchPanel = ({
             ? parsed.parseIssues
             : ["No valid clips to process"]
         setErrors(issues)
-        runInFlightRef.current = false
-        setRunBusy(false)
         return
       }
+
       const uploads = clipsToUploads(parsed)
-      const batchId = await createDraft({
-        name: defaultBatchName(uploads.length),
-        method: selectedMethod,
+      setUploadProgress({ done: 0, total: uploads.length })
+      const prepared = await prepareClipsForDraft(
+        () => generateUploadUrl({}),
+        parsed,
+        (done, total) => {
+          setUploadProgress({ done, total })
+        },
+      )
+      if (controller.signal.aborted) {
+        return
+      }
+
+      const datasetId = await createDataset({
+        name: `${prepared.length} clip${prepared.length === 1 ? "" : "s"}`,
         parseIssues: parsed.parseIssues,
-        clips: uploads.map((clip) => ({
+        clips: prepared.map((clip) => ({
           name: clip.name,
+          storageId: clip.storageId as Id<"_storage">,
           goldJson: clip.goldJson,
         })),
       })
-      transferredRef.current = true
-      stashPendingUpload(batchId, parsedInputFromUploads(uploads, parsed.parseIssues))
-      onStarted?.(batchId)
+      await launchBatch(datasetId, parsed.parseIssues)
     } catch (caught) {
-      if (isAbortError(caught) || transferredRef.current) {
+      if (isAbortError(caught)) {
         return
       }
-      const message = caught instanceof Error ? caught.message : "Could not start the batch"
+      const message =
+        caught instanceof Error ? caught.message : "Could not start the batch"
       setErrors([message])
       toast.error(message)
+    } finally {
       runInFlightRef.current = false
-      setRunBusy(false)
+      setStarting(false)
+      setUploadProgress(null)
     }
   }
 
-  const canRun = selected.length > 0 && !starting
+  const hasFileSelection = selected.length > 0
+  const hasDatasetSelection = selectedDatasetId !== null
+  const canRun =
+    !starting && (hasFileSelection || hasDatasetSelection)
+
+  const runLabel = starting
+    ? uploadProgress
+      ? `Uploading ${uploadProgress.done}/${uploadProgress.total}…`
+      : "Starting…"
+    : "Run"
+
+  const dropzoneClass = cn(
+    "rounded-xl border bg-card transition-colors",
+    dragging
+      ? "border-foreground bg-muted/40"
+      : "border-dashed border-border",
+  )
 
   return (
     <div className="space-y-8">
-      <div
-        onDragOver={(event) => {
-          event.preventDefault()
-          setDragging(true)
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(event) => {
-          void handleDrop(event)
-        }}
-        className={
-          dragging
-            ? "rounded-xl border border-foreground bg-muted/40 p-8 sm:p-10"
-            : "rounded-xl border border-dashed border-border bg-card p-8 sm:p-10"
-        }
-      >
-        <p className="text-sm font-medium">Drop a ZIP or folder</p>
-        <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">
-          Include any supported audio (.wav, .mp3, .ogg, .m4a, .flac) and{" "}
-          <code>labels.csv</code>. The CSV <code>name</code> column must match those
-          filenames. Leave <code>result_json</code> empty on the hidden set. You can
-          add files in more than one selection; they are only read when you press Run.
-        </p>
-        <label className="mt-8 inline-flex">
-          <input
-            type="file"
-            className="sr-only"
-            multiple
-            accept=".zip,.csv,.wav,.mp3,.ogg,.m4a,.flac,application/zip"
-            disabled={starting}
-            aria-label="Choose batch files"
-            onClick={handleFilePickerOpen}
-            onChange={handleFileInput}
-          />
-          <span className="inline-flex h-10 cursor-pointer items-center rounded-lg border border-border bg-background px-4 text-sm font-medium">
-            {selected.length > 0 ? "Add files" : "Choose files"}
-          </span>
-        </label>
-      </div>
+      <section className="space-y-4">
+        <h2 className="text-sm font-medium">Files</h2>
 
-      {selected.length > 0 ? (
-        <div>
-          <div className="flex items-baseline justify-between gap-4">
-            <p className="text-sm font-medium">Selected files</p>
-            <p className="text-sm text-muted-foreground">
-              {selected.length} file{selected.length === 1 ? "" : "s"}
-            </p>
-          </div>
-          <ul className="mt-3 divide-y divide-border">
-            {selected.map((item) => (
-              <li
-                key={item.id}
-                className="flex items-center gap-3 py-2.5 text-sm"
-              >
-                <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {formatFileSize(item.size)}
-                </span>
+        <div
+          role="region"
+          aria-label="Drop a ZIP or folder of audio files with labels.csv, or use Choose files"
+          onDragOver={(event) => {
+            event.preventDefault()
+            if (!starting && !hasDatasetSelection) {
+              setDragging(true)
+            }
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(event) => {
+            if (!starting && !hasDatasetSelection) {
+              void handleDrop(event)
+            }
+          }}
+          className={dropzoneClass}
+        >
+          {hasDatasetSelection && selectedDataset ? (
+            <div className="p-6 sm:p-8">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{selectedDataset.name}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {selectedDataset.clipCount} clip
+                    {selectedDataset.clipCount === 1 ? "" : "s"}
+                    {selectedDataset.parseIssues.length > 0
+                      ? ` · ${selectedDataset.parseIssues.length} parse note${selectedDataset.parseIssues.length === 1 ? "" : "s"}`
+                      : ""}
+                    {` · ${relativeTime(selectedDataset.updatedAt)}`}
+                  </p>
+                </div>
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  className="shrink-0 text-muted-foreground hover:text-foreground"
-                  aria-label={`Remove ${item.name}`}
+                  aria-label="Clear dataset selection"
                   disabled={starting}
-                  onClick={() => handleRemoveFile(item.id)}
+                  onClick={clearDataset}
                 >
                   <XIcon className="size-4" />
                 </Button>
-              </li>
-            ))}
-          </ul>
+              </div>
+              <p className="mt-6 text-sm text-muted-foreground">
+                Using a saved dataset.{" "}
+                <button
+                  type="button"
+                  className="font-medium text-foreground underline-offset-4 hover:underline"
+                  disabled={starting}
+                  onClick={clearDataset}
+                >
+                  Upload different files
+                </button>
+              </p>
+            </div>
+          ) : hasFileSelection ? (
+            <div className="p-6 sm:p-8">
+              <div className="flex items-baseline justify-between gap-4">
+                <p className="text-sm font-medium">Selected files</p>
+                <p className="text-sm text-muted-foreground">
+                  {selected.length} file{selected.length === 1 ? "" : "s"}
+                </p>
+              </div>
+              <ul className="mt-4 divide-y divide-border rounded-lg border border-border bg-background">
+                {selected.map((item) => (
+                  <li
+                    key={item.id}
+                    className="flex items-center gap-3 px-4 py-2.5 text-sm"
+                  >
+                    <span className="min-w-0 flex-1 truncate font-medium">
+                      {item.name}
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {formatFileSize(item.size)}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="shrink-0 text-muted-foreground hover:text-foreground"
+                      aria-label={`Remove ${item.name}`}
+                      disabled={starting}
+                      onClick={() => handleRemoveFile(item.id)}
+                    >
+                      <XIcon className="size-4" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+              <label className="mt-6 inline-flex">
+                <input
+                  type="file"
+                  className="sr-only"
+                  multiple
+                  accept=".zip,.csv,.wav,.mp3,.ogg,.m4a,.flac,application/zip"
+                  disabled={starting}
+                  aria-label="Add more batch files"
+                  onChange={handleFileInput}
+                />
+                <span className="inline-flex h-9 cursor-pointer items-center rounded-lg border border-border bg-background px-3 text-sm font-medium">
+                  Add files
+                </span>
+              </label>
+            </div>
+          ) : (
+            <div className="p-8 sm:p-10">
+              <p className="text-sm font-medium">Add audio files or a ZIP</p>
+              <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">
+                Include any supported audio (.wav, .mp3, .ogg, .m4a, .flac) and{" "}
+                <code>labels.csv</code>. The CSV <code>name</code> column must match
+                those filenames.
+              </p>
+              <label className="mt-8 inline-flex">
+                <input
+                  type="file"
+                  className="sr-only"
+                  multiple
+                  accept=".zip,.csv,.wav,.mp3,.ogg,.m4a,.flac,application/zip"
+                  disabled={starting}
+                  aria-label="Choose batch files"
+                  onChange={handleFileInput}
+                />
+                <span className="inline-flex h-10 cursor-pointer items-center rounded-lg border border-border bg-background px-4 text-sm font-medium">
+                  Choose files
+                </span>
+              </label>
+            </div>
+          )}
         </div>
-      ) : null}
+
+        {savedDatasets === undefined ? null : savedDatasets.length > 0 ? (
+          <div className="space-y-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Recent datasets
+            </p>
+            <ul className="grid gap-2 sm:grid-cols-2">
+              {savedDatasets.map((dataset) => {
+                const active = selectedDatasetId === dataset._id
+                return (
+                  <li key={dataset._id}>
+                    <button
+                      type="button"
+                      disabled={starting}
+                      onClick={() => handleSelectDataset(dataset._id)}
+                      className={cn(
+                        "flex w-full items-start gap-3 rounded-xl border p-4 text-left transition-colors",
+                        active
+                          ? "border-foreground bg-accent/40"
+                          : "border-border bg-card hover:border-foreground/40",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border",
+                          active
+                            ? "border-foreground bg-foreground text-background"
+                            : "border-border bg-background",
+                        )}
+                        aria-hidden
+                      >
+                        {active ? <CheckIcon className="size-2.5" /> : null}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium">
+                          {dataset.name}
+                        </span>
+                        <span className="mt-1 block text-xs text-muted-foreground">
+                          {dataset.clipCount} clip{dataset.clipCount === 1 ? "" : "s"}
+                          {` · ${relativeTime(dataset.updatedAt)}`}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        ) : null}
+
+        {selectedDataset && selectedDataset.parseIssues.length > 0 ? (
+          <Alert>
+            <AlertTitle>Parse notes for this dataset</AlertTitle>
+            <AlertDescription>
+              <ul className="list-disc space-y-1 pl-4">
+                {selectedDataset.parseIssues.map((issue) => (
+                  <li key={issue}>{issue}</li>
+                ))}
+              </ul>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+      </section>
 
       <div className="space-y-5">
         <div>
-          <h2 className="text-sm font-medium">Method</h2>
+          <h2 className="text-sm font-medium">Methods</h2>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            Fusion is the production path. Baseline is the DSP control. You can pick either
-            before running.
+            Select one or more methods to run on the same files. Gemini methods
+            cost extra.
           </p>
         </div>
-        <MethodCards value={selectedMethod} onChange={setMethod} />
+        <MethodCards multiple value={methods} onChange={setMethods} />
       </div>
 
       {errors.length > 0 ? (
@@ -310,7 +472,7 @@ export const NewBatchPanel = ({
         </Alert>
       ) : null}
 
-      <div className="sticky bottom-0 -mx-6 mt-2 flex flex-wrap items-center gap-3 border-t bg-popover px-6 py-4">
+      <div className="sticky bottom-0 -mx-8 flex flex-wrap items-center gap-3 border-t bg-background px-8 py-4">
         <Button
           type="button"
           size="lg"
@@ -322,27 +484,13 @@ export const NewBatchPanel = ({
         >
           {starting ? (
             <span className="inline-flex items-center gap-2">
-              <LoaderCircleIcon className="size-4 animate-spin" aria-hidden />
-              Starting…
+              <Spinner size={16} />
+              {runLabel}
             </span>
           ) : (
             "Run"
           )}
         </Button>
-        {onDiscard ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="lg"
-            className="h-10 px-5"
-            disabled={starting}
-            onClick={() => {
-              void handleDiscard()
-            }}
-          >
-            Cancel
-          </Button>
-        ) : null}
       </div>
     </div>
   )

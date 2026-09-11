@@ -8,6 +8,12 @@ import {
 import { err, ok, type Result } from "@/domain/result";
 import type { AnalyzeError } from "@/domain/errors";
 
+/**
+ * Naive control required by the trial: maps RMS / SNR onto tone.
+ * Assessment forbids inferring frustration from loudness in production;
+ * this classifier exists to show that policy is wrong. Noise uses the shared
+ * extractor family (Johnston SFM / modulation), not a second Gemini call.
+ */
 export class AcousticBaselineClassifier implements SemanticClassifier {
   constructor(private readonly acoustic: AcousticAnalyzer = new FfmpegAcousticAnalyzer()) {}
 
@@ -32,12 +38,15 @@ export class AcousticBaselineClassifier implements SemanticClassifier {
       emotional_tone = "frustrated";
       emotional_intensity = "medium";
     }
-    const noisy = m.spectralFlatness >= 0.28 || (m.snrDb < 12 && m.rms >= 0.04);
+    const noisy = m.noiseFamily === "static";
     const prediction: ClipPrediction = {
       emotional_tone,
       emotional_intensity,
       background_noise: noisy
-        ? presentNoise(m.spectralFlatness >= 0.35 ? "broadband noise" : "background noise", m.snrDb < 8 ? "medium" : "low")
+        ? presentNoise(
+            m.noiseFamily === "static" ? "broadband noise" : "background noise",
+            m.snrDb < 8 ? "medium" : "low",
+          )
         : noNoise,
       audio_quality: "clear",
       speaker_overlap_present: false,

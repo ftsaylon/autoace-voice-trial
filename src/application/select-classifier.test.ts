@@ -6,17 +6,11 @@ import { classifierForMethod } from "./select-classifier"
 import { METHOD_IDS, METHODS } from "./methods"
 import type { AcousticAnalyzer } from "./ports"
 import { ok } from "@/domain/result"
+import { acousticMeasurements } from "@/domain"
 
 const acoustic: AcousticAnalyzer = {
   async measure() {
-    return ok({
-      durationSec: 1,
-      longestSilenceSec: 0,
-      snrDb: 20,
-      clipFraction: 0,
-      rms: 0.1,
-      spectralFlatness: 0.2,
-    })
+    return ok(acousticMeasurements())
   },
   async extractWindow(audio) {
     return ok(audio)

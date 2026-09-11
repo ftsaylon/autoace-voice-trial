@@ -1,24 +1,41 @@
+/**
+ * ffmpeg I/O for the acoustic extractor.
+ * Decode is stereo (2 ch, 16 kHz) before any mix-down so split-channel overlap
+ * survives (Xiao et al., ICASSP 2011; Ghosh et al., Interspeech 2010). Dual-mono
+ * (ρ ≈ 1) is treated as one channel in measureStereo.
+ */
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, chmod, constants, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import ffmpegPath from "ffmpeg-static";
 import type { AcousticAnalyzer } from "@/application/ports";
 import type { AudioBytes } from "@/application/ports";
 import { err, ok, type Result } from "@/domain/result";
-import type { AcousticMeasurements } from "@/domain";
 import type { AnalyzeError } from "@/domain/errors";
+import { measureStereo, SAMPLE_RATE } from "./measure-acoustics";
 
-export const SAMPLE_RATE = 16000;
+export { SAMPLE_RATE, measurePcm, measureStereo } from "./measure-acoustics";
 
-function runFfmpeg(args: string[], input?: Uint8Array): Promise<Uint8Array> {
+const ensureExecutable = async (bin: string): Promise<string> => {
+  try {
+    await access(bin, constants.X_OK);
+    return bin;
+  } catch {
+    await chmod(bin, 0o755);
+    await access(bin, constants.X_OK);
+    return bin;
+  }
+};
+
+async function runFfmpeg(args: string[], input?: Uint8Array): Promise<Uint8Array> {
+  if (!ffmpegPath) {
+    throw new Error("ffmpeg-static binary is missing");
+  }
+  const bin = await ensureExecutable(ffmpegPath);
   return new Promise((resolve, reject) => {
-    if (!ffmpegPath) {
-      reject(new Error("ffmpeg-static binary is missing"));
-      return;
-    }
     const chunks: Buffer[] = [];
-    const child = spawn(ffmpegPath, args, { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(bin, args, { stdio: ["pipe", "pipe", "pipe"] });
     child.stdout.on("data", (chunk: Buffer) => {
       chunks.push(chunk);
     });
@@ -41,144 +58,57 @@ function runFfmpeg(args: string[], input?: Uint8Array): Promise<Uint8Array> {
   });
 }
 
-export async function decodePcm(bytes: Uint8Array): Promise<Float32Array> {
+function pcmStereo(pcm: Uint8Array): { left: Float32Array; right: Float32Array } {
+  const frames = Math.floor(pcm.byteLength / 4);
+  const samples = new Int16Array(pcm.buffer, pcm.byteOffset, frames * 2);
+  const left = new Float32Array(frames);
+  const right = new Float32Array(frames);
+  for (let i = 0; i < frames; i++) {
+    left[i] = samples[i * 2]! / 32768;
+    right[i] = samples[i * 2 + 1]! / 32768;
+  }
+  return { left, right };
+}
+
+/** Stereo decode before mix-down (Xiao ICASSP 2011; Ghosh Interspeech 2010). */
+export async function decodePcmStereo(
+  bytes: Uint8Array,
+): Promise<{ left: Float32Array; right: Float32Array }> {
   const pcm = await runFfmpeg(
-    ["-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-ac", "1", "-ar", String(SAMPLE_RATE), "-f", "s16le", "pipe:1"],
+    [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-i",
+      "pipe:0",
+      "-ac",
+      "2",
+      "-ar",
+      String(SAMPLE_RATE),
+      "-f",
+      "s16le",
+      "pipe:1",
+    ],
     bytes,
   );
-  const samples = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.byteLength / 2));
-  const out = new Float32Array(samples.length);
-  for (let i = 0; i < samples.length; i++) {
-    out[i] = samples[i]! / 32768;
+  return pcmStereo(pcm);
+}
+
+export async function decodePcm(bytes: Uint8Array): Promise<Float32Array> {
+  const { left, right } = await decodePcmStereo(bytes);
+  const n = Math.min(left.length, right.length);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    out[i] = 0.5 * (left[i]! + right[i]!);
   }
   return out;
 }
 
-function frameEnergy(samples: Float32Array, start: number, size: number): number {
-  let sum = 0;
-  const end = Math.min(start + size, samples.length);
-  for (let i = start; i < end; i++) {
-    const v = samples[i]!;
-    sum += v * v;
-  }
-  return Math.sqrt(sum / Math.max(1, end - start));
-}
-
-function spectralFlatness(samples: Float32Array): number {
-  const n = 512;
-  if (samples.length < n) {
-    return 0.5;
-  }
-  const mid = Math.floor(samples.length / 2) - n / 2;
-  const re = new Float64Array(n);
-  const im = new Float64Array(n);
-  for (let i = 0; i < n; i++) {
-    re[i] = samples[mid + i]!;
-  }
-  dft(re, im);
-  let logSum = 0;
-  let arith = 0;
-  let count = 0;
-  for (let k = 1; k < n / 2; k++) {
-    const mag = re[k]! * re[k]! + im[k]! * im[k]!;
-    const p = Math.max(mag, 1e-12);
-    logSum += Math.log(p);
-    arith += p;
-    count += 1;
-  }
-  if (count === 0 || arith === 0) {
-    return 0.5;
-  }
-  const geo = Math.exp(logSum / count);
-  return geo / (arith / count);
-}
-
-function dft(re: Float64Array, im: Float64Array) {
-  const n = re.length;
-  const outRe = new Float64Array(n);
-  const outIm = new Float64Array(n);
-  for (let k = 0; k < n; k++) {
-    let sr = 0;
-    let si = 0;
-    for (let t = 0; t < n; t++) {
-      const angle = (-2 * Math.PI * k * t) / n;
-      sr += re[t]! * Math.cos(angle);
-      si += re[t]! * Math.sin(angle);
-    }
-    outRe[k] = sr;
-    outIm[k] = si;
-  }
-  re.set(outRe);
-  im.set(outIm);
-}
-
-export function measurePcm(samples: Float32Array): AcousticMeasurements {
-  const durationSec = samples.length / SAMPLE_RATE;
-  if (samples.length === 0) {
-    return {
-      durationSec: 0,
-      longestSilenceSec: 0,
-      snrDb: 0,
-      clipFraction: 0,
-      rms: 0,
-      spectralFlatness: 0.5,
-    };
-  }
-  let sumSq = 0;
-  let clipped = 0;
-  for (let i = 0; i < samples.length; i++) {
-    const v = samples[i]!;
-    sumSq += v * v;
-    if (Math.abs(v) >= 0.99) {
-      clipped += 1;
-    }
-  }
-  const rms = Math.sqrt(sumSq / samples.length);
-  const frame = Math.round(0.03 * SAMPLE_RATE);
-  const hop = Math.round(0.015 * SAMPLE_RATE);
-  const energies: number[] = [];
-  for (let start = 0; start + frame <= samples.length; start += hop) {
-    energies.push(frameEnergy(samples, start, frame));
-  }
-  const sorted = [...energies].sort((a, b) => a - b);
-  const noiseFloor = sorted[Math.max(0, Math.floor(sorted.length * 0.1))] ?? 0;
-  const speechThresh = Math.max(0.01, noiseFloor * 3, rms * 0.25);
-  let longest = 0;
-  let current = 0;
-  let speechEnergy = 0;
-  let speechCount = 0;
-  let noiseEnergy = 0;
-  let noiseCount = 0;
-  for (const energy of energies) {
-    if (energy < speechThresh) {
-      current += hop / SAMPLE_RATE;
-      longest = Math.max(longest, current);
-      noiseEnergy += energy * energy;
-      noiseCount += 1;
-    } else {
-      current = 0;
-      speechEnergy += energy * energy;
-      speechCount += 1;
-    }
-  }
-  const speechRms = speechCount ? Math.sqrt(speechEnergy / speechCount) : rms;
-  const noiseRms = noiseCount ? Math.sqrt(noiseEnergy / noiseCount) : Math.max(rms * 0.05, 1e-6);
-  const snrDb = 20 * Math.log10((speechRms + 1e-8) / (noiseRms + 1e-8));
-  return {
-    durationSec,
-    longestSilenceSec: longest,
-    snrDb,
-    clipFraction: clipped / samples.length,
-    rms,
-    spectralFlatness: spectralFlatness(samples),
-  };
-}
-
 export class FfmpegAcousticAnalyzer implements AcousticAnalyzer {
-  async measure(audio: AudioBytes): Promise<Result<AcousticMeasurements, AnalyzeError>> {
+  async measure(audio: AudioBytes): Promise<Result<import("@/domain").AcousticMeasurements, AnalyzeError>> {
     try {
-      const pcm = await decodePcm(audio.bytes);
-      return ok(measurePcm(pcm));
+      const { left, right } = await decodePcmStereo(audio.bytes);
+      return ok(measureStereo(left, right));
     } catch (error) {
       return err({
         tag: "decode_failed",
@@ -194,7 +124,7 @@ export class FfmpegAcousticAnalyzer implements AcousticAnalyzer {
     endSec: number,
   ): Promise<Result<AudioBytes, AnalyzeError>> {
     const dir = await mkdtemp(path.join(os.tmpdir(), "autoace-"));
-    const inputPath = path.join(dir, audio.name);
+    const inputPath = path.join(dir, "clip.bin");
     try {
       await writeFile(inputPath, audio.bytes);
       const duration = Math.max(0.05, endSec - startSec);
@@ -217,7 +147,8 @@ export class FfmpegAcousticAnalyzer implements AcousticAnalyzer {
         "pipe:1",
       ]);
       return ok({
-        name: `${path.parse(audio.name).name}_${startSec.toFixed(1)}.wav`,
+        // Generic name: never leak call_*.ogg or window timestamps to Gemini.
+        name: "clip.wav",
         bytes: wav,
         mediaType: "audio/wav",
       });
@@ -232,4 +163,3 @@ export class FfmpegAcousticAnalyzer implements AcousticAnalyzer {
     }
   }
 }
-

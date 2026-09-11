@@ -1,101 +1,33 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useState } from "react"
 import { useRouter } from "next/navigation"
-import { BatchList } from "@/components/batch-list"
 import { NewBatchPanel } from "@/components/new-batch-panel"
-import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { collectDroppedFiles } from "@/lib/collect-dropped-files"
-
-const FILE_PICKER_DISMISS_GRACE_MS = 500
 
 export const BatchesPageClient = () => {
   const router = useRouter()
-  const [open, setOpen] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [initialFiles, setInitialFiles] = useState<File[] | null>(null)
-  const [dialogKey, setDialogKey] = useState(0)
-  const [runLocked, setRunLocked] = useState(false)
-  const discardRef = useRef<(() => Promise<void>) | null>(null)
-  const runLockedRef = useRef(false)
-  const filePickerActiveRef = useRef(false)
-  const suppressDismissUntilRef = useRef(0)
-
-  const setBusy = useCallback((busy: boolean) => {
-    runLockedRef.current = busy
-    setRunLocked(busy)
-  }, [])
-
-  const openModal = useCallback((files: File[] | null = null) => {
-    setInitialFiles(files)
-    setDialogKey((value) => value + 1)
-    setOpen(true)
-  }, [])
-
-  const closeModal = useCallback(() => {
-    setOpen(false)
-    setInitialFiles(null)
-  }, [])
-
-  const shouldIgnoreDismiss = useCallback(() => {
-    return (
-      runLockedRef.current ||
-      filePickerActiveRef.current ||
-      Date.now() < suppressDismissUntilRef.current
-    )
-  }, [])
-
-  const handleFilePickerOpen = useCallback(() => {
-    filePickerActiveRef.current = true
-  }, [])
-
-  const handleFilePickerSettled = useCallback(() => {
-    filePickerActiveRef.current = false
-    suppressDismissUntilRef.current = Date.now() + FILE_PICKER_DISMISS_GRACE_MS
-  }, [])
-
-  useEffect(() => {
-    const handleWindowFocus = () => {
-      if (!filePickerActiveRef.current) {
-        return
-      }
-      suppressDismissUntilRef.current = Date.now() + FILE_PICKER_DISMISS_GRACE_MS
-      window.setTimeout(() => {
-        filePickerActiveRef.current = false
-      }, FILE_PICKER_DISMISS_GRACE_MS)
-    }
-    window.addEventListener("focus", handleWindowFocus)
-    return () => {
-      window.removeEventListener("focus", handleWindowFocus)
-    }
-  }, [])
-
-  const requestClose = useCallback(async () => {
-    if (shouldIgnoreDismiss()) {
-      return
-    }
-    if (discardRef.current) {
-      await discardRef.current()
-      return
-    }
-    closeModal()
-  }, [closeModal, shouldIgnoreDismiss])
+  const [panelKey, setPanelKey] = useState(0)
 
   const handlePageDrop = async (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault()
     setDragging(false)
     const files = await collectDroppedFiles(event.dataTransfer)
     if (files.length > 0) {
-      openModal(files)
+      setInitialFiles(files)
+      setPanelKey((value) => value + 1)
     }
   }
+
+  const handleStarted = useCallback(
+    (batchId: string) => {
+      setInitialFiles(null)
+      router.push(`/batches/${batchId}`)
+    },
+    [router],
+  )
 
   return (
     <div
@@ -121,83 +53,19 @@ export const BatchesPageClient = () => {
         </div>
       ) : null}
 
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Batches</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Concurrent runs keep going if you leave this page. Drop a ZIP or folder anywhere
-            here to create a batch.
-          </p>
-        </div>
-        <Button
-          type="button"
-          size="lg"
-          className="h-10 px-4"
-          onClick={() => openModal(null)}
-        >
-          New batch
-        </Button>
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Analyze clips</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          Choose a saved dataset or add new files, pick methods, and run. Processing
+          continues in the background.
+        </p>
       </div>
 
-      <BatchList onCreateBatch={() => openModal(null)} />
-
-      <Dialog
-        open={open}
-        onOpenChange={(next) => {
-          if (!next) {
-            void requestClose()
-          } else {
-            setOpen(true)
-          }
-        }}
-      >
-        <DialogContent
-          className="flex max-h-[min(90vh,880px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
-          showCloseButton={!runLocked}
-          onEscapeKeyDown={(event) => {
-            if (shouldIgnoreDismiss()) {
-              event.preventDefault()
-            }
-          }}
-          onFocusOutside={(event) => {
-            event.preventDefault()
-          }}
-          onPointerDownOutside={(event) => {
-            if (shouldIgnoreDismiss()) {
-              event.preventDefault()
-            }
-          }}
-          onInteractOutside={(event) => {
-            if (shouldIgnoreDismiss()) {
-              event.preventDefault()
-            }
-          }}
-          aria-busy={runLocked || undefined}
-        >
-          <DialogHeader className="space-y-2 border-b px-6 py-5 pr-14">
-            <DialogTitle className="text-lg">New batch</DialogTitle>
-            <DialogDescription className="leading-relaxed">
-              Choose files, pick a method, then Run. Upload and processing continue on
-              the batch page.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="overflow-y-auto px-6 py-6">
-            <NewBatchPanel
-              key={dialogKey}
-              initialFiles={initialFiles}
-              discardRef={discardRef}
-              onBusyChange={setBusy}
-              onFilePickerOpen={handleFilePickerOpen}
-              onFilePickerSettled={handleFilePickerSettled}
-              onDiscard={closeModal}
-              onStarted={(batchId) => {
-                closeModal()
-                router.push(`/batches/${batchId}`)
-              }}
-            />
-          </div>
-        </DialogContent>
-      </Dialog>
+      <NewBatchPanel
+        key={panelKey}
+        initialFiles={initialFiles}
+        onStarted={handleStarted}
+      />
     </div>
   )
 }

@@ -332,11 +332,6 @@ export const prepareClipsForDraft = async (
   return preparedClipsFromUploads(uploaded)
 }
 
-export const defaultBatchName = (fileCount: number): string => {
-  const stamp = new Date().toISOString().slice(0, 16).replace("T", " ")
-  return fileCount === 1 ? `Batch ${stamp}` : `Batch ${stamp}`
-}
-
 export type SelectedBatchFile = {
   id: string
   name: string

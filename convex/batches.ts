@@ -3,9 +3,114 @@ import { mutation, query } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { requireUserId } from "./lib/auth"
 import { ownedOrNull } from "./lib/access"
-import { methodValidator } from "./schema"
+import schema, { methodValidator } from "./schema"
+import { failedResultsForRun } from "../src/application/run-policy"
 import { MAX_RUNNING_BATCHES, decideBatchLaunch } from "./lib/constants"
-import { modelForMethod } from "../src/application/methods"
+import { MAX_CLIP_COUNT, MAX_RUNS_PER_BATCH } from "../src/domain/constants"
+import { modelForMethod, type MethodId } from "../src/application/methods"
+import {
+  activateRun,
+  assertClipsReadyToRun,
+  boundParseIssues,
+  ensureRuns,
+  insertRunsForMethods,
+  listBatchClips,
+  listRunResults,
+  listRuns,
+  overlayClip,
+  pickViewingRun,
+  requireMethodIds,
+} from "./lib/runs"
+import { allocateBatchName } from "./lib/batchNames"
+import { touchUpdated } from "./datasets"
+import type { MutationCtx } from "./_generated/server"
+import type { Doc, Id } from "./_generated/dataModel"
+
+const launchResultValidator = v.union(
+  v.object({ started: v.literal(true), reason: v.literal("running") }),
+  v.object({
+    started: v.literal(false),
+    reason: v.union(v.literal("queued"), v.literal("already_running")),
+  }),
+)
+
+const batchDoc = schema.doc("batches")
+const clipDoc = schema.doc("clips")
+const runDoc = schema.doc("runs")
+const clipResultDoc = schema.doc("clipResults")
+
+const launchBatch = async (
+  ctx: MutationCtx,
+  batchId: Id<"batches">,
+) => {
+  const batch = await ctx.db.get(batchId)
+  if (!batch) {
+    throw new Error("Batch not found")
+  }
+  if (batch.clipCount === 0) {
+    throw new Error("No valid clips to process")
+  }
+  if (batch.status === "running") {
+    await ctx.scheduler.runAfter(0, internal.processActions.processNext, {
+      batchId,
+    })
+    return { started: false as const, reason: "already_running" as const }
+  }
+  const clips = await listBatchClips(ctx, batchId)
+  assertClipsReadyToRun(clips)
+  const runs = await listRuns(ctx, batchId)
+  if (runs.length === 0) {
+    throw new Error("No runs to start")
+  }
+  const now = Date.now()
+  const running = await ctx.db
+    .query("batches")
+    .withIndex("by_status", (q) => q.eq("status", "running"))
+    .take(MAX_RUNNING_BATCHES + 1)
+  const othersRunning = running.filter((row) => row._id !== batchId).length
+  const launch = decideBatchLaunch(othersRunning)
+
+  if (launch === "queued") {
+    await ctx.db.patch(batchId, {
+      status: "queued",
+      startedAt: batch.startedAt ?? now,
+      completedAt: undefined,
+    })
+    await ctx.db.insert("logs", {
+      userId: batch.userId,
+      batchId,
+      level: "info",
+      message: "Queued until another batch finishes",
+      createdAt: now,
+    })
+    return { started: false as const, reason: "queued" as const }
+  }
+
+  await ctx.db.patch(batchId, {
+    status: "running",
+    startedAt: batch.startedAt ?? now,
+    completedAt: undefined,
+  })
+  const startedBatch = await ctx.db.get(batchId)
+  if (startedBatch) {
+    for (const run of runs) {
+      if (run.status === "queued") {
+        await activateRun(ctx, run, startedBatch)
+      }
+    }
+  }
+  await ctx.db.insert("logs", {
+    userId: batch.userId,
+    batchId,
+    level: "info",
+    message: "Batch processing started",
+    createdAt: now,
+  })
+  await ctx.scheduler.runAfter(0, internal.processActions.processNext, {
+    batchId,
+  })
+  return { started: true as const, reason: "running" as const }
+}
 
 export const generateUploadUrl = mutation({
   args: {},
@@ -16,26 +121,11 @@ export const generateUploadUrl = mutation({
   },
 })
 
-export const deleteStorageIds = mutation({
-  args: {
-    storageIds: v.array(v.id("_storage")),
-  },
-  handler: async (ctx, args) => {
-    await requireUserId(ctx)
-    for (const storageId of args.storageIds) {
-      try {
-        await ctx.storage.delete(storageId)
-      } catch {
-        // Already deleted or never written; cleanup must be idempotent.
-      }
-    }
-  },
-})
-
 export const createDraft = mutation({
   args: {
-    name: v.string(),
+    name: v.optional(v.string()),
     method: methodValidator,
+    methods: v.optional(v.array(methodValidator)),
     parseIssues: v.array(v.string()),
     clips: v.array(
       v.object({
@@ -48,20 +138,32 @@ export const createDraft = mutation({
   returns: v.id("batches"),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
+    if (args.clips.length === 0) {
+      throw new Error("No valid clips to process")
+    }
+    if (args.clips.length > MAX_CLIP_COUNT) {
+      throw new Error(`Batch has ${args.clips.length} clips; the cap is ${MAX_CLIP_COUNT}`)
+    }
     const createdAt = Date.now()
-    const model = modelForMethod(args.method)
+    const methodIds = requireMethodIds(
+      args.methods && args.methods.length > 0 ? args.methods : [args.method],
+    )
+    const method = methodIds[0] ?? args.method
+    const model = modelForMethod(method)
     const awaitingUpload = args.clips.some((clip) => !clip.storageId)
     const batchId = await ctx.db.insert("batches", {
       userId,
-      name: args.name,
+      name: args.name ?? (await allocateBatchName(ctx, userId)),
       status: awaitingUpload ? "uploading" : "draft",
-      method: args.method,
+      method,
       model,
-      parseIssues: args.parseIssues,
+      parseIssues: boundParseIssues(args.parseIssues),
       clipCount: args.clips.length,
       succeededCount: 0,
       failedCount: 0,
       createdAt,
+      runCount: 0,
+      methodIds,
     })
     for (const clip of args.clips) {
       await ctx.db.insert("clips", {
@@ -82,6 +184,144 @@ export const createDraft = mutation({
       createdAt,
     })
     return batchId
+  },
+})
+
+const insertBatchFromDataset = async (
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  args: {
+    datasetId: Id<"datasets">
+    name: string
+    method: MethodId
+    methods: MethodId[]
+    parseIssues: string[]
+  },
+): Promise<Id<"batches">> => {
+  const dataset = await ctx.db.get(args.datasetId)
+  if (!dataset || dataset.userId !== userId) {
+    throw new Error("Dataset not found")
+  }
+  const datasetClips = await ctx.db
+    .query("datasetClips")
+    .withIndex("by_dataset", (q) => q.eq("datasetId", args.datasetId))
+    .collect()
+  if (datasetClips.length === 0) {
+    throw new Error("Dataset has no clips")
+  }
+  if (datasetClips.length > MAX_CLIP_COUNT) {
+    throw new Error(`Dataset has ${datasetClips.length} clips; the cap is ${MAX_CLIP_COUNT}`)
+  }
+  const createdAt = Date.now()
+  const methodIds = requireMethodIds(args.methods)
+  const method = methodIds[0] ?? args.method
+  const batchId = await ctx.db.insert("batches", {
+    userId,
+    name: args.name,
+    status: "draft",
+    method,
+    model: modelForMethod(method),
+    parseIssues: boundParseIssues(args.parseIssues),
+    clipCount: datasetClips.length,
+    succeededCount: 0,
+    failedCount: 0,
+    createdAt,
+    runCount: 0,
+    methodIds,
+    datasetId: args.datasetId,
+  })
+  for (const clip of datasetClips) {
+    await ctx.db.insert("clips", {
+      batchId,
+      name: clip.name,
+      storageId: clip.storageId,
+      state: "queued",
+      goldJson: clip.goldJson,
+    })
+  }
+  await touchUpdated(ctx, args.datasetId)
+  await ctx.db.insert("logs", {
+    userId,
+    batchId,
+    level: "info",
+    message: `Batch created from saved dataset (${datasetClips.length} clip${datasetClips.length === 1 ? "" : "s"})`,
+    createdAt,
+  })
+  return batchId
+}
+
+export const createFromDataset = mutation({
+  args: {
+    datasetId: v.id("datasets"),
+    name: v.optional(v.string()),
+    method: methodValidator,
+    methods: v.optional(v.array(methodValidator)),
+    parseIssues: v.optional(v.array(v.string())),
+  },
+  returns: v.id("batches"),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx)
+    const dataset = await ctx.db.get(args.datasetId)
+    if (!dataset || dataset.userId !== userId) {
+      throw new Error("Dataset not found")
+    }
+    const methodIds = requireMethodIds(
+      args.methods && args.methods.length > 0 ? args.methods : [args.method],
+    )
+    return await insertBatchFromDataset(ctx, userId, {
+      datasetId: args.datasetId,
+      name: args.name ?? (await allocateBatchName(ctx, userId)),
+      method: methodIds[0] ?? args.method,
+      methods: methodIds,
+      parseIssues: args.parseIssues ?? dataset.parseIssues,
+    })
+  },
+})
+
+export const runAgain = mutation({
+  args: {
+    batchId: v.id("batches"),
+  },
+  returns: v.object({
+    batchId: v.id("batches"),
+    started: v.boolean(),
+    reason: v.union(
+      v.literal("running"),
+      v.literal("queued"),
+      v.literal("already_running"),
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx)
+    const source = await ctx.db.get(args.batchId)
+    if (!source || source.userId !== userId) {
+      throw new Error("Batch not found")
+    }
+    if (!source.datasetId) {
+      throw new Error(
+        "This batch has no saved dataset. Create a new batch from the home page.",
+      )
+    }
+    const runs = await listRuns(ctx, args.batchId)
+    const methods =
+      runs.length > 0
+        ? [...new Set(runs.map((run) => run.method))]
+        : requireMethodIds(source.methodIds ?? [source.method])
+    const newBatchId = await insertBatchFromDataset(ctx, userId, {
+      datasetId: source.datasetId,
+      name: await allocateBatchName(ctx, userId),
+      method: methods[0] ?? source.method,
+      methods,
+      parseIssues: source.parseIssues,
+    })
+    const batch = (await ctx.db.get(newBatchId)) as Doc<"batches">
+    await insertRunsForMethods(ctx, batch, methods)
+    const launch = await launchBatch(ctx, newBatchId)
+    return {
+      batchId: newBatchId,
+      started: launch.started,
+      reason: launch.reason,
+    }
   },
 })
 
@@ -159,51 +399,111 @@ export const list = query({
       ),
     ),
   },
+  returns: v.array(batchDoc),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
-    const rows = await ctx.db
+    if (args.status) {
+      return await ctx.db
+        .query("batches")
+        .withIndex("by_userId_and_status_and_createdAt", (q) =>
+          q.eq("userId", userId).eq("status", args.status!),
+        )
+        .order("desc")
+        .take(100)
+    }
+    return await ctx.db
       .query("batches")
       .withIndex("by_user_and_created", (q) => q.eq("userId", userId))
       .order("desc")
       .take(100)
-    if (!args.status) {
-      return rows
-    }
-    return rows.filter((row) => row.status === args.status)
   },
 })
 
 export const get = query({
-  args: { batchId: v.id("batches") },
+  args: {
+    batchId: v.id("batches"),
+    runId: v.optional(v.id("runs")),
+  },
+  returns: v.union(
+    v.object({
+      batch: batchDoc,
+      clips: v.array(clipDoc),
+      runs: v.array(runDoc),
+      viewingRun: v.union(runDoc, v.null()),
+    }),
+    v.null(),
+  ),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
     const batch = ownedOrNull(userId, await ctx.db.get(args.batchId))
     if (!batch) {
       return null
     }
-    const clips = await ctx.db
-      .query("clips")
-      .withIndex("by_batch", (q) => q.eq("batchId", args.batchId))
-      .collect()
-    return { batch, clips }
+    const clips = await listBatchClips(ctx, args.batchId)
+    const runs = await listRuns(ctx, args.batchId)
+    const viewingRun = pickViewingRun(runs, args.runId)
+    const viewingResults = viewingRun
+      ? await listRunResults(ctx, viewingRun._id)
+      : []
+    const resultByClip = new Map(
+      viewingResults.map((row) => [row.clipId, row] as const),
+    )
+    return {
+      batch,
+      clips: clips.map((clip) => overlayClip(clip, resultByClip.get(clip._id))),
+      runs,
+      viewingRun,
+    }
+  },
+})
+
+export const listResultsForRuns = query({
+  args: {
+    batchId: v.id("batches"),
+    runIds: v.array(v.id("runs")),
+  },
+  returns: v.array(clipResultDoc),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx)
+    const batch = ownedOrNull(userId, await ctx.db.get(args.batchId))
+    if (!batch) {
+      return []
+    }
+    const uniqueIds = [...new Set(args.runIds)]
+    if (uniqueIds.length > MAX_RUNS_PER_BATCH) {
+      throw new Error(`Load at most ${MAX_RUNS_PER_BATCH} runs`)
+    }
+    const runs = await listRuns(ctx, args.batchId)
+    const allowed = new Set(runs.map((run) => run._id))
+    const results = []
+    for (const runId of uniqueIds) {
+      if (!allowed.has(runId)) {
+        continue
+      }
+      results.push(...(await listRunResults(ctx, runId)))
+    }
+    return results
   },
 })
 
 export const listMineActive = query({
   args: {},
+  returns: v.array(batchDoc),
   handler: async (ctx) => {
     const userId = await requireUserId(ctx)
-    const rows = await ctx.db
-      .query("batches")
-      .withIndex("by_user_and_created", (q) => q.eq("userId", userId))
-      .order("desc")
-      .take(50)
-    return rows.filter(
-      (row) =>
-        row.status === "running" ||
-        row.status === "queued" ||
-        row.status === "uploading",
+    const statuses = ["running", "queued", "uploading"] as const
+    const pages = await Promise.all(
+      statuses.map((status) =>
+        ctx.db
+          .query("batches")
+          .withIndex("by_userId_and_status_and_createdAt", (q) =>
+            q.eq("userId", userId).eq("status", status),
+          )
+          .order("desc")
+          .take(50),
+      ),
     )
+    return pages.flat()
   },
 })
 
@@ -212,6 +512,7 @@ export const setMethod = mutation({
     batchId: v.id("batches"),
     method: methodValidator,
   },
+  returns: v.null(),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
     const batch = await ctx.db.get(args.batchId)
@@ -221,10 +522,16 @@ export const setMethod = mutation({
     if (batch.status === "running") {
       throw new Error("Cannot change method while running")
     }
+    const runs = await listRuns(ctx, args.batchId)
+    if (runs.length > 0) {
+      throw new Error("Method is chosen per run after the first start")
+    }
     await ctx.db.patch(args.batchId, {
       method: args.method,
       model: modelForMethod(args.method),
+      methodIds: [args.method],
     })
+    return null
   },
 })
 
@@ -232,107 +539,77 @@ export const start = mutation({
   args: {
     batchId: v.id("batches"),
     method: v.optional(methodValidator),
+    methods: v.optional(v.array(methodValidator)),
   },
+  returns: launchResultValidator,
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
     const batch = await ctx.db.get(args.batchId)
     if (!batch || batch.userId !== userId) {
       throw new Error("Batch not found")
     }
-    if (batch.clipCount === 0) {
-      throw new Error("No valid clips to process")
+    assertClipsReadyToRun(await listBatchClips(ctx, args.batchId))
+    let current = batch
+    const existing = await ensureRuns(ctx, current)
+    current = (await ctx.db.get(args.batchId)) ?? current
+    if (existing.length === 0) {
+      const methods: MethodId[] =
+        args.methods && args.methods.length > 0
+          ? args.methods
+          : current.methodIds && current.methodIds.length > 0
+            ? current.methodIds
+            : args.method
+              ? [args.method]
+              : [current.method]
+      await insertRunsForMethods(ctx, current, methods)
     }
-    if (batch.status === "running") {
-      return { started: false as const, reason: "already_running" as const }
-    }
-    if (batch.status === "uploading") {
-      const clips = await ctx.db
-        .query("clips")
-        .withIndex("by_batch", (q) => q.eq("batchId", args.batchId))
-        .collect()
-      if (clips.some((clip) => !clip.storageId || clip.state === "uploading")) {
-        throw new Error("Clips are still uploading")
-      }
-    }
-
-    const method = args.method ?? batch.method
-    const model = modelForMethod(method)
-    const now = Date.now()
-    const running = await ctx.db
-      .query("batches")
-      .withIndex("by_status", (q) => q.eq("status", "running"))
-      .take(MAX_RUNNING_BATCHES + 1)
-    const othersRunning = running.filter((row) => row._id !== args.batchId).length
-    const launch = decideBatchLaunch(othersRunning)
-
-    if (launch === "queued") {
-      await ctx.db.patch(args.batchId, {
-        status: "queued",
-        method,
-        model,
-        startedAt: now,
-      })
-      await ctx.db.insert("logs", {
-        userId,
-        batchId: args.batchId,
-        level: "info",
-        message: "Queued until another batch finishes",
-        createdAt: now,
-      })
-      return { started: false as const, reason: "queued" as const }
-    }
-
-    await ctx.db.patch(args.batchId, {
-      status: "running",
-      method,
-      model,
-      startedAt: now,
-      completedAt: undefined,
-    })
-    await ctx.db.insert("logs", {
-      userId,
-      batchId: args.batchId,
-      level: "info",
-      message: `Run started using ${method}`,
-      createdAt: now,
-    })
-    await ctx.scheduler.runAfter(0, internal.processActions.processNext, {
-      batchId: args.batchId,
-    })
-    return { started: true as const, reason: "running" as const }
+    return await launchBatch(ctx, args.batchId)
   },
 })
 
-export const retry = mutation({
+export const startRuns = mutation({
   args: {
     batchId: v.id("batches"),
-    scope: v.union(v.literal("failed"), v.literal("all")),
+    methods: v.array(methodValidator),
   },
+  returns: launchResultValidator,
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
     const batch = await ctx.db.get(args.batchId)
+    if (!batch || batch.userId !== userId) {
+      throw new Error("Batch not found")
+    }
+    const methods = requireMethodIds(args.methods)
+    assertClipsReadyToRun(await listBatchClips(ctx, args.batchId))
+    await ensureRuns(ctx, batch)
+    const current = (await ctx.db.get(args.batchId)) ?? batch
+    await insertRunsForMethods(ctx, current, methods)
+    return await launchBatch(ctx, args.batchId)
+  },
+})
+
+export const retryRun = mutation({
+  args: {
+    runId: v.id("runs"),
+  },
+  returns: v.object({ requeued: v.number() }),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx)
+    const run = await ctx.db.get(args.runId)
+    if (!run) {
+      throw new Error("Run not found")
+    }
+    const batch = await ctx.db.get(run.batchId)
     if (!batch || batch.userId !== userId) {
       throw new Error("Batch not found")
     }
     if (batch.status === "running") {
       throw new Error("Wait for the current run to finish")
     }
-    const clips = await ctx.db
-      .query("clips")
-      .withIndex("by_batch", (q) => q.eq("batchId", args.batchId))
-      .collect()
+    const results = failedResultsForRun(await listRunResults(ctx, args.runId), args.runId)
     let requeued = 0
-    for (const clip of clips) {
-      const should =
-        args.scope === "all"
-          ? clip.state === "failed" ||
-            clip.state === "succeeded" ||
-            clip.state === "running"
-          : clip.state === "failed"
-      if (!should) {
-        continue
-      }
-      await ctx.db.patch(clip._id, {
+    for (const row of results) {
+      await ctx.db.patch(row._id, {
         state: "queued",
         stage: undefined,
         predictionJson: undefined,
@@ -347,22 +624,77 @@ export const retry = mutation({
       return { requeued: 0 }
     }
     const now = Date.now()
-    await ctx.db.patch(args.batchId, {
+    await ctx.db.patch(args.runId, {
       status: "queued",
-      succeededCount: args.scope === "all" ? 0 : batch.succeededCount,
+      failedCount: 0,
+      completedAt: undefined,
+    })
+    await ctx.db.patch(run.batchId, {
+      completedAt: undefined,
+    })
+    await ctx.db.insert("logs", {
+      userId,
+      batchId: run.batchId,
+      runId: args.runId,
+      level: "info",
+      message: `Requeued ${requeued} failed clip${requeued === 1 ? "" : "s"} on ${run.method}`,
+      createdAt: now,
+    })
+    await launchBatch(ctx, run.batchId)
+    return { requeued }
+  },
+})
+
+export const retry = mutation({
+  args: {
+    batchId: v.id("batches"),
+  },
+  returns: v.object({ requeued: v.number() }),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx)
+    const batch = await ctx.db.get(args.batchId)
+    if (!batch || batch.userId !== userId) {
+      throw new Error("Batch not found")
+    }
+    if (batch.status === "running") {
+      throw new Error("Wait for the current run to finish")
+    }
+    const runs = await ensureRuns(ctx, batch)
+    const latest = runs[runs.length - 1]
+    if (!latest) {
+      return { requeued: 0 }
+    }
+    const results = failedResultsForRun(await listRunResults(ctx, latest._id), latest._id)
+    let requeued = 0
+    for (const row of results) {
+      await ctx.db.patch(row._id, {
+        state: "queued",
+        stage: undefined,
+        predictionJson: undefined,
+        errorJson: undefined,
+        claimedAt: undefined,
+        startedAt: undefined,
+        finishedAt: undefined,
+      })
+      requeued += 1
+    }
+    if (requeued === 0) {
+      return { requeued: 0 }
+    }
+    await ctx.db.patch(latest._id, {
+      status: "queued",
       failedCount: 0,
       completedAt: undefined,
     })
     await ctx.db.insert("logs", {
       userId,
       batchId: args.batchId,
+      runId: latest._id,
       level: "info",
-      message:
-        args.scope === "all"
-          ? `Requeued all ${requeued} clips`
-          : `Requeued ${requeued} failed clip${requeued === 1 ? "" : "s"}`,
-      createdAt: now,
+      message: `Requeued ${requeued} failed clip${requeued === 1 ? "" : "s"} on ${latest.method}`,
+      createdAt: Date.now(),
     })
+    await launchBatch(ctx, args.batchId)
     return { requeued }
   },
 })

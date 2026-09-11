@@ -1,13 +1,30 @@
+/**
+ * Windowing and reduction for Gemini methods.
+ *
+ * Clips ≤ 240 s are one request so billed audio stays under $0.003/min
+ * (Gemini audio ≈ 32 tokens/s). Longer clips use non-overlapping 20 s
+ * windows. Tone ties prefer window confidence, then AutoAce enum order —
+ * not tone severity. Overlap needs a strict majority so one false-positive
+ * window cannot set the clip.
+ */
 import {
   INTENSITY_RANK,
   NOISE_SEVERITY_RANK,
   QUALITY_RANK,
-  TONE_SEVERITY,
   WINDOW_FULL_CLIP_MAX_SEC,
   WINDOW_OVERLAP_SEC,
   WINDOW_SEC,
 } from "./constants";
-import { noNoise, presentNoise, type AudioQuality, type ClipPrediction, type EmotionalTone, type Intensity, type WindowPrediction } from "./prediction";
+import {
+  EMOTIONAL_TONES,
+  noNoise,
+  presentNoise,
+  type AudioQuality,
+  type ClipPrediction,
+  type EmotionalTone,
+  type Intensity,
+  type WindowPrediction,
+} from "./prediction";
 
 export function windowBounds(durationSec: number): { startSec: number; endSec: number }[] {
   if (durationSec <= WINDOW_FULL_CLIP_MAX_SEC) {
@@ -66,20 +83,25 @@ function winningTone(windows: WindowPrediction[]): EmotionalTone {
   if (tied.length === 1) {
     return tied[0]!;
   }
-  const nonLow = tied.filter((tone) =>
-    windows.some(
-      (window) =>
-        window.emotional_tone === tone && window.emotional_intensity !== "low",
-    ),
-  );
-  const pool = nonLow.length > 0 ? nonLow : ["neutral" as const];
-  if (pool.length === 1 && pool[0] === "neutral" && nonLow.length === 0) {
-    return "neutral";
-  }
-  let winner = pool[0]!;
-  for (const tone of pool) {
-    if (TONE_SEVERITY[tone] > TONE_SEVERITY[winner]) {
+  let winner = tied[0]!;
+  let bestConfidence = -1;
+  for (const tone of tied) {
+    const confidence = Math.max(
+      ...windows
+        .filter((window) => window.emotional_tone === tone)
+        .map((window) => window.confidence),
+    );
+    if (confidence > bestConfidence) {
+      bestConfidence = confidence;
       winner = tone;
+      continue;
+    }
+    if (confidence === bestConfidence) {
+      const winnerIndex = EMOTIONAL_TONES.indexOf(winner);
+      const toneIndex = EMOTIONAL_TONES.indexOf(tone);
+      if (toneIndex >= 0 && (winnerIndex < 0 || toneIndex < winnerIndex)) {
+        winner = tone;
+      }
     }
   }
   return winner;
@@ -119,7 +141,9 @@ export function aggregateWindows(windows: WindowPrediction[]): ClipPrediction {
     emotional_intensity: intensity,
     background_noise,
     audio_quality: winningQuality(windows),
-    speaker_overlap_present: windows.some((window) => window.speaker_overlap_present),
+    speaker_overlap_present:
+      windows.filter((window) => window.speaker_overlap_present).length * 2 >
+      windows.length,
     long_silence_present: windows.some((window) => window.long_silence_present),
     confidence: matches / windows.length,
   };

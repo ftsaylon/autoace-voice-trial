@@ -36,13 +36,15 @@ SQLite, cookie login, and the browser `POST /process` loop are gone from the web
 
 Tables are flat and indexed:
 
-- `batches` — `userId`, `name`, `status` (`draft` | `queued` | `running` | `complete` | `failed`), `method`, `model`, parse issues, counts, timestamps
-- `clips` — `batchId`, original `name`, `storageId`, `state`, `stage`, gold/prediction/error JSON, timings
-- `logs` — append-only diagnostics keyed by user and batch
+- `batches` — `userId`, `name`, `status` (`draft` | `queued` | `running` | `complete` | `failed`), latest `method` / `model`, parse issues, counts, timestamps, `runCount`, `methodIds`
+- `runs` — one method attempt on a batch. Append-only. Status `queued` | `running` | `complete` | `failed`
+- `clipResults` — per-clip prediction/error for a run
+- `clips` — `batchId`, original `name`, `storageId`, gold JSON, upload state. Predictions live on `clipResults`
+- `logs` — append-only diagnostics keyed by user, batch, and optional `runId`. The UI shows them on the batch page for the selected method run, not as an app-wide log stream.
 - `userSettings` — default method
 - Convex Auth tables — users and sessions. No parallel profile table.
 
-Indexes: `by_user`, `by_user_and_created`, `by_batch`, `by_batch_and_created`, `by_status`.
+Indexes: `by_user`, `by_user_and_created`, `by_batch`, `by_batch_and_created`, `by_status`, `by_run`, `by_run_and_created`, `by_run_and_state`, `by_clip`.
 
 Files go through `generateUploadUrl` into Convex storage. ZIP unzip happens in the browser with JSZip. There is no extra size cap in storage; the parser still enforces clip/batch caps.
 
@@ -67,8 +69,8 @@ sequenceDiagram
   UI->>Convex: createDraft, start
   Convex->>Worker: scheduler.runAfter processNext
   loop Each queued clip
-    Worker->>Worker: ffmpeg decode, windows
-    Worker->>Gemini: classify window when the method needs Gemini
+    Worker->>Worker: ffmpeg stereo decode, acoustics, windows
+    Worker->>Gemini: classify clip or window as clip.wav when the method needs Gemini
     Worker->>Convex: stage logs, complete clip
     Worker->>Worker: schedule next clip
   end
@@ -80,15 +82,15 @@ sequenceDiagram
 3. Method (`fusion`, `baseline`, `lexical`, `prosody`, `gemini_only`) can be chosen with or without files.
 4. Run creates a draft then starts it. Drafts are not processed.
 5. At most two batches run at once. Further starts are `queued`.
-6. Clips inside a batch are serialized (Gemini RPM). Separate batches have their own scheduler chains.
-7. `onStage` writes decode / acoustics / window i/n / fuse into `clips.stage` and `logs`. A log failure cannot fail the clip.
-8. The UI never polls a process endpoint. `useQuery` on batch, clips, and logs is the live stream.
+6. Clips inside a **run** are serialized (Gemini RPM). Multiple methods on the same batch run one after another and occupy one running-batch slot.
+7. `onStage` writes decode / acoustics / window i/n / fuse into `clipResults.stage` and `logs`. A log failure cannot fail the clip.
+8. The UI never polls a process endpoint. `useQuery` on batch, clips, runs, and logs is the live stream.
 
 ## Failures
 
-Per-clip isolation: one decode or classifier error marks that clip `failed` and the worker continues. Retry failed requeues only those clips. Redo requeues all clips after confirm.
+Per-clip isolation: one decode or classifier error marks that clip result `failed` and the worker continues. Retry failed requeues only those clip results on that run. **Run methods** always creates new runs — previous results stay.
 
-If ffmpeg cannot spawn in the Convex Node action, the clip fails with `decode_failed` and the log records the cause. Predictions are never invented.
+If ffmpeg cannot spawn in the Convex Node action, the clip fails with `decode_failed` and the log records the cause. If the Gemini key is missing, the worker fails every unfinished result on that run with `classifier_unavailable` and does not invent a prediction.
 
 ## Downloads
 

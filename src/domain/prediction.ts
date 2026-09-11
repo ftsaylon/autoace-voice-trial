@@ -36,6 +36,22 @@ export type ClipPrediction = {
   confidence: number;
 };
 
+/**
+ * DSP residual class. `clean` is a positive single-talker decision.
+ * `uncertain` means DSP has no residual evidence — Gemini still owns TV/chatter.
+ * `speech_like` is reserved for a competing-speech residual; the extractor may
+ * omit it when the mix's 4 Hz peak is just the foreground talker.
+ */
+export type NoiseFamily = "clean" | "static" | "speech_like" | "uncertain";
+
+/** Stereo both-active (Xiao/Morgan) or mono harmonicity confirm (Boakye HER). */
+export type OverlapEvidence = "none" | "stereo_both_active" | "harmonicity";
+
+/**
+ * Shared extractor output. Frame SFM / Hammarberg / modulation / HNR / WADA /
+ * stereo fields are documented in docs/METHODS.md. emotional_tone is never
+ * derived from these numbers in production fusion.
+ */
 export type AcousticMeasurements = {
   durationSec: number;
   longestSilenceSec: number;
@@ -43,6 +59,48 @@ export type AcousticMeasurements = {
   clipFraction: number;
   rms: number;
   spectralFlatness: number;
+  wadaSnrDb: number;
+  unvoicedSpectralFlatness: number;
+  alphaRatioDb: number;
+  hammarbergDb: number;
+  modulationRatio: number;
+  hnrDb: number;
+  harmonicEnergyRatio: number;
+  unvoicedZcr: number;
+  f0RangeHz: number;
+  channelCount: number;
+  channelCorrelation: number;
+  bothChannelsActiveFraction: number;
+  noiseFamily: NoiseFamily;
+  overlapEvidence: OverlapEvidence;
+};
+
+export const acousticMeasurements = (
+  overrides: Partial<AcousticMeasurements> = {},
+): AcousticMeasurements => {
+  return {
+    durationSec: 1,
+    longestSilenceSec: 0,
+    snrDb: 25,
+    clipFraction: 0,
+    rms: 0.1,
+    spectralFlatness: 0.15,
+    wadaSnrDb: 25,
+    unvoicedSpectralFlatness: 0.15,
+    alphaRatioDb: 0,
+    hammarbergDb: 12,
+    modulationRatio: 0.08,
+    hnrDb: 12,
+    harmonicEnergyRatio: 0.6,
+    unvoicedZcr: 0.08,
+    f0RangeHz: 20,
+    channelCount: 1,
+    channelCorrelation: 1,
+    bothChannelsActiveFraction: 0,
+    noiseFamily: "uncertain",
+    overlapEvidence: "none",
+    ...overrides,
+  };
 };
 
 export type WindowPrediction = ClipPrediction & {

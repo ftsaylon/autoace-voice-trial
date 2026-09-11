@@ -12,11 +12,22 @@ export function formatAnalyzeError(error: AnalyzeError): string {
     case "decode_failed":
       return `Could not decode ${error.name}: ${error.cause}`;
     case "classifier_unavailable":
-      return "Semantic classifier is not configured";
+      return "Gemini API key is missing on the Convex deployment. Add GOOGLE_GENERATIVE_AI_API_KEY to .env.local and run npm run dev:backend (or npx convex env set GOOGLE_GENERATIVE_AI_API_KEY).";
     case "classifier_invalid_output":
       return `Classifier returned invalid output: ${error.cause}`;
     case "timeout":
       return "Analysis timed out";
+  }
+}
+
+export function formatStoredAnalyzeError(errorJson: string | undefined): string {
+  if (!errorJson) {
+    return "unknown error";
+  }
+  try {
+    return formatAnalyzeError(JSON.parse(errorJson) as AnalyzeError);
+  } catch {
+    return errorJson;
   }
 }
 

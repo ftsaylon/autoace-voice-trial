@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { mapProsodyToPrediction, measureProsody } from "./measure-prosody"
+import { acousticMeasurements } from "@/domain"
 
 const SAMPLE_RATE = 16000
 
@@ -42,14 +43,15 @@ describe("measureProsody", () => {
 describe("mapProsodyToPrediction", () => {
   it("does not use RMS to pick tone", () => {
     const loudNeutral = mapProsodyToPrediction({
-      acoustic: {
+      acoustic: acousticMeasurements({
         durationSec: 4,
         longestSilenceSec: 0.2,
         snrDb: 25,
         clipFraction: 0,
         rms: 0.4,
         spectralFlatness: 0.1,
-      },
+        noiseFamily: "clean",
+      }),
       f0MeanHz: 140,
       f0RangeHz: 12,
       speakingRateHz: 1.2,
@@ -61,14 +63,15 @@ describe("mapProsodyToPrediction", () => {
 
   it("maps wide F0 range and fast rate to high-arousal tones", () => {
     const upset = mapProsodyToPrediction({
-      acoustic: {
+      acoustic: acousticMeasurements({
         durationSec: 4,
         longestSilenceSec: 0.1,
         snrDb: 20,
         clipFraction: 0,
         rms: 0.05,
         spectralFlatness: 0.12,
-      },
+        noiseFamily: "clean",
+      }),
       f0MeanHz: 210,
       f0RangeHz: 60,
       speakingRateHz: 3.2,

@@ -1,8 +1,8 @@
 # AutoAce voice tone and noise trial
 
-Hosted operator dashboard for classifying customer emotional tone and background noise in production call audio. AutoAce can log in, create a batch from a ZIP or folder, pick a method, run concurrent jobs, watch live clip logs, and download schema-faithful CSV/JSON.
+Hosted operator dashboard for classifying customer emotional tone and background noise in production call audio. AutoAce can log in, create a batch from a ZIP or folder, pick a method, run concurrent jobs, watch live logs on each method run, and download schema-faithful CSV/JSON.
 
-Production inference uses Gemini 3.6 Flash with constrained decoding, fused with ffmpeg acoustics. Gold `result_json` is used only for scoring. It never enters the model.
+Production inference uses Gemini 3.6 Flash with constrained decoding and thinking `minimal`, fused with ffmpeg acoustics. Gold `result_json` is used only for scoring. It never enters the model.
 
 Audio leaves AutoAce infrastructure and is stored in **Convex** and sent to **Google Gemini**.
 
@@ -10,8 +10,9 @@ Audio leaves AutoAce infrastructure and is stored in **Convex** and sent to **Go
 
 ```bash
 cp env.example .env.local
+# add GOOGLE_GENERATIVE_AI_API_KEY to .env.local
 npm install
-npx convex dev
+npm run dev:backend
 ```
 
 In a second terminal:
@@ -25,7 +26,7 @@ Open the URL Next prints. It prefers http://127.0.0.1:43123 and uses the next fr
 
 `npx convex dev` pushes functions, regenerates `convex/_generated`, and keeps the scheduler worker running. The Next app talks to `NEXT_PUBLIC_CONVEX_URL`.
 
-Set `GOOGLE_GENERATIVE_AI_API_KEY` on the Convex deployment (`npx convex env set GOOGLE_GENERATIVE_AI_API_KEY`) before analyzing real calls. Without a key, fusion clips fail with `classifier_unavailable` instead of a fake prediction.
+Fusion, Lexical, and Gemini-only run inside Convex Node actions. They read the Gemini key from the **Convex deployment**, not from Next.js. Put `GOOGLE_GENERATIVE_AI_API_KEY` in `.env.local` and start the backend with `npm run dev:backend` so the key is synced (`npm run sync:convex-env` also works). You can still set it by hand with `npx convex env set GOOGLE_GENERATIVE_AI_API_KEY`. Without a key, Gemini runs fail immediately instead of inventing a prediction.
 
 ### Login
 
@@ -51,6 +52,8 @@ evaluation_batch/
 Supported audio: wav, mp3, ogg, m4a, flac.
 
 Create a batch from **New batch** on the Batches page (or drop a ZIP/folder onto that page), pick a method, then press **Run**. Files upload as soon as they parse. Classification does not start until you press Run. Hidden-set scoring should use **Fusion**.
+
+To compare methods, turn on **Compare methods** before Run, or open a finished batch and press **Run methods**. Audio is not re-uploaded. Each attempt is stored as a run. The Compare tab shows grouped accuracy bars, tone confusion matrices, and a clip heatmap.
 
 ### Methods
 
