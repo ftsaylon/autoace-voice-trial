@@ -34,7 +34,7 @@ export const BatchesPageClient = () => {
 
   return (
     <div
-      className="relative space-y-8"
+      className="relative flex min-h-full flex-col"
       onDragOver={(event) => {
         event.preventDefault()
         if (event.dataTransfer.types.includes("Files")) {
@@ -51,12 +51,12 @@ export const BatchesPageClient = () => {
       }}
     >
       {dragging ? (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-foreground bg-background/80">
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-foreground bg-background/80">
           <p className="text-sm font-medium">Drop files to start a new batch</p>
         </div>
       ) : null}
 
-      <div>
+      <div className="shrink-0 pb-8">
         <h1 className="text-2xl font-semibold tracking-tight">Analyze clips</h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
           Choose a saved dataset or add new files, pick methods, and run. Processing
@@ -66,6 +66,7 @@ export const BatchesPageClient = () => {
 
       <NewBatchPanel
         key={panelKey}
+        className="min-h-0 flex-1"
         initialFiles={initialFiles}
         initialRootName={initialRootName}
         onStarted={handleStarted}

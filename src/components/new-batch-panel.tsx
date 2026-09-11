@@ -30,12 +30,14 @@ export type NewBatchPanelProps = {
   initialFiles?: File[] | null
   initialRootName?: string | null
   onStarted?: (batchId: string) => void
+  className?: string
 }
 
 export const NewBatchPanel = ({
   initialFiles = null,
   initialRootName = null,
   onStarted,
+  className,
 }: NewBatchPanelProps) => {
   const { isAuthenticated } = useConvexAuth()
   const savedDatasets = useQuery(api.datasets.list, isAuthenticated ? {} : "skip")
@@ -305,7 +307,8 @@ export const NewBatchPanel = ({
   )
 
   return (
-    <div className="space-y-8">
+    <div className={cn("flex min-h-0 flex-col", className)}>
+      <div className="min-h-0 flex-1 space-y-8 overflow-y-auto pb-4">
       <section className="space-y-4">
         <h2 className="text-sm font-medium">Files</h2>
 
@@ -573,8 +576,9 @@ export const NewBatchPanel = ({
           </AlertDescription>
         </Alert>
       ) : null}
+      </div>
 
-      <div className="sticky bottom-0 -mx-8 flex flex-wrap items-center gap-3 border-t bg-background px-8 py-4">
+      <div className="relative z-10 -mx-8 flex shrink-0 flex-wrap items-center gap-3 border-t bg-background px-8 py-4">
         <Button
           type="button"
           size="lg"
