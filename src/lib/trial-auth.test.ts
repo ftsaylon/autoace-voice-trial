@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { normalizeAuthEmail, TRIAL_EMAIL } from "./trial-auth"
+import { normalizeAuthEmail } from "./trial-auth"
 
 describe("normalizeAuthEmail", () => {
-  it("maps the trial username to the Password email", () => {
-    expect(normalizeAuthEmail("autoace")).toBe(TRIAL_EMAIL)
+  it("maps a username to the Password email", () => {
+    expect(normalizeAuthEmail("review")).toBe("review@eval.local")
   })
 
   it("passes through a real email", () => {

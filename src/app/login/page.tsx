@@ -28,13 +28,12 @@ export default function LoginPage() {
   const { signIn } = useAuthActions()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
-  const [fieldsVisible, setFieldsVisible] = useState(false)
+  const [passwordVisible, setPasswordVisible] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
-  const fieldType = fieldsVisible ? "text" : "password"
 
-  const handleToggleFields = () => {
-    setFieldsVisible((visible) => !visible)
+  const handleTogglePassword = () => {
+    setPasswordVisible((visible) => !visible)
   }
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -80,8 +79,9 @@ export default function LoginPage() {
             Run labeled call batches without leaving the operator tool
           </h1>
           <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
-            Sign in with the trial credentials. Concurrent batches keep processing
-            while you move between batches, history, and settings.
+            Sign in with the credentials from the evaluation email. Concurrent
+            batches keep processing while you move between batches, history, and
+            settings.
           </p>
         </section>
         <Card className="w-full shadow-none">
@@ -91,8 +91,7 @@ export default function LoginPage() {
             </p>
             <CardTitle>Sign in</CardTitle>
             <CardDescription>
-              Use the evaluation credentials. Username <code>autoace</code> maps to
-              the Password account.
+              Use the username and password from the evaluation email.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -101,7 +100,7 @@ export default function LoginPage() {
                 <Label htmlFor="username">Username</Label>
                 <Input
                   id="username"
-                  type={fieldType}
+                  type="text"
                   autoComplete="username"
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
@@ -110,31 +109,32 @@ export default function LoginPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type={fieldType}
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  required
-                />
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={passwordVisible ? "text" : "password"}
+                    autoComplete="current-password"
+                    className="pr-9"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    required
+                  />
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-1.5">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      className="pointer-events-auto text-muted-foreground"
+                      aria-pressed={passwordVisible}
+                      aria-controls="password"
+                      aria-label={passwordVisible ? "Hide password" : "Show password"}
+                      onClick={handleTogglePassword}
+                    >
+                      {passwordVisible ? <EyeOffIcon /> : <EyeIcon />}
+                    </Button>
+                  </div>
+                </div>
               </div>
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-8 w-full"
-                aria-pressed={fieldsVisible}
-                aria-controls="username password"
-                aria-label={fieldsVisible ? "Hide login fields" : "Show login fields"}
-                onClick={handleToggleFields}
-              >
-                {fieldsVisible ? (
-                  <EyeOffIcon data-icon="inline-start" />
-                ) : (
-                  <EyeIcon data-icon="inline-start" />
-                )}
-                {fieldsVisible ? "Hide credentials" : "Show credentials"}
-              </Button>
               {error ? (
                 <Alert variant="destructive">
                   <AlertCircleIcon className="size-4" />

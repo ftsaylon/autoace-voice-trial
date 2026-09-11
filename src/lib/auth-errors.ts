@@ -1,7 +1,7 @@
 export const INVALID_CREDENTIALS_MESSAGE = "Invalid username or password."
 
 export const DEFAULT_LOGIN_ERROR_MESSAGE =
-  "Login failed. Check the evaluation username and password."
+  "Login failed. Check the username and password."
 
 export class LoginFailedError extends Error {
   constructor(message: string) {

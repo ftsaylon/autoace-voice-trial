@@ -45,8 +45,8 @@ export const SettingsPanel = () => {
         </p>
         <h2 className="mt-6 text-sm font-medium">Auth</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Convex Auth Password. Trial login maps <code>autoace</code> to{" "}
-          <code>autoace@eval.local</code>.
+          Convex Auth Password. A username without @ is stored as{" "}
+          <code>username@eval.local</code>.
         </p>
       </section>
     </div>

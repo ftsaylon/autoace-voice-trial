@@ -49,16 +49,7 @@ npm test
 npm run dev
 ```
 
-Open the URL Next prints. It prefers http://127.0.0.1:43123 and uses the next free port if that one is taken. If the port changes, set `SITE_URL` on Convex to match.
-
-### Login
-
-Convex Auth Password. The trial UI accepts the provided username and maps it to an email account:
-
-- Username: `autoace` (stored as `autoace@eval.local`)
-- Password: `trial-eval-2026`
-
-The first successful sign-in creates the Password user if it does not exist yet.
+Open the URL Next prints. It prefers http://127.0.0.1:43123 and uses the next free port if that one is taken. If the port changes, set `SITE_URL` on Convex to match. Sign in with the same trial username and password as above.
 
 ### Batch shape
 
