@@ -6,6 +6,7 @@ import { ownedOrNull } from "./lib/access"
 import schema, { methodValidator } from "./schema"
 import { failedResultsForRun } from "../src/application/run-policy"
 import { MAX_RUNNING_BATCHES, decideBatchLaunch } from "./lib/constants"
+import { scheduleClipWorkers } from "./lib/schedule-clip-workers"
 import { MAX_CLIP_COUNT, MAX_RUNS_PER_BATCH } from "../src/domain/constants"
 import { modelForMethod, type MethodId } from "../src/application/methods"
 import {
@@ -106,10 +107,8 @@ const launchBatch = async (
     message: "Batch processing started",
     createdAt: now,
   })
-  await ctx.scheduler.runAfter(0, internal.processActions.processNext, {
-    batchId,
-  })
-  return { started: true as const, reason: "running" as const }
+    await scheduleClipWorkers(ctx, batchId, batch.clipCount)
+    return { started: true as const, reason: "running" as const }
 }
 
 export const generateUploadUrl = mutation({

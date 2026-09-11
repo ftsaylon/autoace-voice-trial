@@ -48,7 +48,7 @@ Prompt: AutoAce field definitions, whole-clip tone ladder, anti-confound rules, 
 
 Thinking: `minimal`.
 
-Cost: about $0.0014 per audio minute of **billed** audio through 31 Dec 2026 (Gemini 3.6 Flash intro $0.75 / 1M input). From 1 Jan 2027 the same audio is about $0.0029 / min at standard $1.50 / 1M. One request per clip under 15 min. Gemini bills audio at about 32 tokens per second. Thinking stays `minimal`. We do not upgrade the model: leftover headroom cannot pay for Pro, thinking above `minimal`, or a second audio call.
+Cost: about $0.0014 per audio minute of **billed** audio through 31 Dec 2026 (Gemini 3.6 Flash intro $0.75 / 1M input). From 1 Jan 2027 the same audio is about $0.0029 / min at standard $1.50 / 1M. One request per clip under 15 min. Gemini bills audio at about 32 tokens per second. Thinking stays `minimal`. We do not upgrade the model: leftover headroom cannot pay for Pro, thinking above `minimal`, or a second audio call. Running up to eight clip workers in parallel does not change $ per source minute.
 
 Sources:
 

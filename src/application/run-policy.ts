@@ -1,7 +1,7 @@
 export const MAX_RUNNING_BATCHES = 2
 
-/** Concurrent claimed clips per batch. Gemini RPM and Convex Node ffmpeg bound this. */
-export const MAX_IN_FLIGHT_CLIPS = 4
+/** Concurrent per-clip processNext actions per batch. Not unbounded: 2 batches × 8 = 16 Node+ffmpeg+Gemini. */
+export const MAX_IN_FLIGHT_CLIPS = 8
 
 export const processesOnCreate = false
 

@@ -85,15 +85,16 @@ describe("retryRun isolation", () => {
 })
 
 describe("in-flight clip pool", () => {
-  it("fills to 4 when many clips remain and none are running", () => {
-    expect(inFlightToSchedule(0, 10)).toBe(MAX_IN_FLIGHT_CLIPS)
+  it("fills to the cap when many clips remain and none are running", () => {
+    expect(inFlightToSchedule(0, 50)).toBe(MAX_IN_FLIGHT_CLIPS)
     expect(inFlightToSchedule(0, 2)).toBe(2)
-    expect(inFlightToSchedule(4, 10)).toBe(0)
-    expect(inFlightToSchedule(3, 10)).toBe(1)
+    expect(inFlightToSchedule(MAX_IN_FLIGHT_CLIPS, 10)).toBe(0)
+    expect(inFlightToSchedule(MAX_IN_FLIGHT_CLIPS - 1, 10)).toBe(1)
   })
 
-  it("fills to 4 then chains without exceeding the cap", () => {
-    let queued = 10
+  it("fills to the cap then chains without exceeding it", () => {
+    const clipCount = 50
+    let queued = clipCount
     let running = 0
     let completed = 0
     let maxRunning = 0
@@ -112,7 +113,7 @@ describe("in-flight clip pool", () => {
       completed += 1
       spawn()
     }
-    expect(completed).toBe(10)
+    expect(completed).toBe(50)
     expect(maxRunning).toBe(MAX_IN_FLIGHT_CLIPS)
   })
 })

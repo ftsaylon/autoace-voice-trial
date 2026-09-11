@@ -49,9 +49,9 @@ If `GOOGLE_GENERATIVE_AI_API_KEY` is missing on the Convex deployment, Gemini me
 
 ## Latency and concurrency
 
-On this machine the acoustic baseline processed the three labeled calls (31 s + 35 s + 172 s) in **1.91 seconds** wall time in an earlier decode. Fusion wall time is estimated as **`~ceil(n / 4) × one Gemini RTT`** (up to four in-flight clips per batch, one Gemini call per typical clip). Windows inside a clip stay serial only on the >15 min fallback. Re-measure with `npx tsx experiments/run-comparison.ts /path/to/folder` after a paid key is available.
+On this machine the acoustic baseline processed the three labeled calls (31 s + 35 s + 172 s) in **1.91 seconds** wall time in an earlier decode. Fusion wall time is estimated as **`~ceil(n / 8) × one Gemini RTT`** (up to eight in-flight **functions**, one clip each, same pattern as method runs). Parallelism does not change $ per audio minute. Windows inside a clip stay serial only on the >15 min fallback. Re-measure with `npx tsx experiments/run-comparison.ts /path/to/folder` after a paid key is available.
 
-The worker claims up to four clips per round in one Convex action, up to two batches running, extras queued. Navigating the app does not pause jobs.
+The worker pool is one Convex Node action per clip, capped at eight per batch, up to two batches running (16 peak). Extras queue. Navigating the app does not pause jobs. The cap is not unbounded: Gemini RPM, ffmpeg memory, and write contention on run counters bind it. Eight is the production setting; 16 per batch would be 32 Node processes with two batches and is not used.
 
 ## Validation
 
