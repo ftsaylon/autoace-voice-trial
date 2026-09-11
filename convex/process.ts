@@ -4,7 +4,7 @@ import type { Doc } from "./_generated/dataModel"
 import { CLAIM_STALE_MS, MAX_CLIP_COUNT } from "../src/domain/constants"
 import { hasPendingRuns, inFlightToSchedule } from "../src/application/run-policy"
 import { MAX_RUNNING_BATCHES } from "./lib/constants"
-import { scheduleClipWorkers } from "./lib/schedule-clip-workers"
+import { scheduleClipWorkers } from "./lib/schedule_clip_workers"
 import { formatStoredAnalyzeError } from "../src/domain/errors"
 import { methodValidator } from "./schema"
 import {

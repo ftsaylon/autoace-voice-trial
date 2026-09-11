@@ -6,7 +6,7 @@ import { ownedOrNull } from "./lib/access"
 import schema, { methodValidator } from "./schema"
 import { failedResultsForRun } from "../src/application/run-policy"
 import { MAX_RUNNING_BATCHES, decideBatchLaunch } from "./lib/constants"
-import { scheduleClipWorkers } from "./lib/schedule-clip-workers"
+import { scheduleClipWorkers } from "./lib/schedule_clip_workers"
 import { MAX_CLIP_COUNT, MAX_RUNS_PER_BATCH } from "../src/domain/constants"
 import { modelForMethod, type MethodId } from "../src/application/methods"
 import {

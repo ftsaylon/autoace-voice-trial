@@ -17,6 +17,7 @@ import type * as lib_auth from "../lib/auth.js";
 import type * as lib_batchNames from "../lib/batchNames.js";
 import type * as lib_constants from "../lib/constants.js";
 import type * as lib_runs from "../lib/runs.js";
+import type * as lib_schedule_clip_workers from "../lib/schedule_clip_workers.js";
 import type * as logs from "../logs.js";
 import type * as process from "../process.js";
 import type * as processActions from "../processActions.js";
@@ -38,6 +39,7 @@ declare const fullApi: ApiFromModules<{
   "lib/batchNames": typeof lib_batchNames;
   "lib/constants": typeof lib_constants;
   "lib/runs": typeof lib_runs;
+  "lib/schedule_clip_workers": typeof lib_schedule_clip_workers;
   logs: typeof logs;
   process: typeof process;
   processActions: typeof processActions;
