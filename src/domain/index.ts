@@ -47,7 +47,15 @@ export {
   type AutoAceJson,
   type CodecError,
 } from "./codec";
-export { fuse, qualityFromAcoustic, fuseNoise, fuseOverlap, fuseIntensity } from "./fusion";
+export {
+  fuse,
+  qualityFromAcoustic,
+  fuseQuality,
+  fuseNoise,
+  fuseOverlap,
+  fuseIntensity,
+  normalizeNoiseType,
+} from "./fusion";
 export { aggregateWindows, windowBounds } from "./aggregate";
 export {
   derivedBatchStatus,

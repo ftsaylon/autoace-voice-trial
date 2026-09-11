@@ -10,7 +10,7 @@ Citations for the extractor and fusion rules are listed in full in [METHODS.md](
 
 **Prosody control.** Same decode. Tone comes from F0 range, speaking-rate bursts, and HNR (Eyben et al. 2016; Boersma 1993), not RMS. Noise uses the shared family. Overlap stays false in the classifier; `fuse()` may still set stereo overlap. Cost is $0. It still cannot name TV versus sharp static.
 
-**Fusion (production).** Gemini 3.6 Flash audio with constrained decoding against a Zod schema. The prompt quotes AutoAce field definitions, a whole-clip tone ladder, anti-confound rules, and DSP labels `noise_family` / `overlap_evidence` only — not SNR, RMS, or filename. The file part is always `clip.wav`. Clips up to 240 s are one request. Longer clips use non-overlapping 20 s windows. `fuse()` writes quality and silence from DSP, drops only weak/generic Gemini noise on a positive `clean` residual (named medium/high events such as TV stay), recovers static from sustained unvoiced SFM, and can set stereo overlap. Dual-mono overlap stays with Gemini; prompt `none` is split-channel context, not a veto. It never changes `emotional_tone`. Production pins `gemini-3.6-flash` with thinking `minimal`.
+**Fusion (production).** Gemini 3.6 Flash audio with constrained decoding against a Zod schema. The prompt quotes AutoAce field definitions, a whole-clip tone ladder, anti-confound rules, perceptual `audio_quality`, and DSP labels `noise_family` / `overlap_evidence` only — not SNR, RMS, or filename. The file part is always `clip.wav`. Clips up to 240 s are one request. Longer clips use non-overlapping 20 s windows. `fuse()` writes silence from DSP, takes the worse of Gemini vs DSP quality, drops only low-severity generic chatter on a positive `clean` residual (named events such as television stay), recovers static from sustained unvoiced SFM without rewriting television, and can set stereo overlap. Dual-mono overlap stays with Gemini; prompt `none` is split-channel context, not a veto. It never changes `emotional_tone`. Invalid structured output retries once. Production pins `gemini-3.6-flash` with thinking `minimal`.
 
 **Lexical experiment.** Same Gemini model and cost. The prompt requires a customer transcript first, then tone from the words (AlloSat / Deschamps-Berger et al., arXiv:2310.04481). Quality, silence, and DSP noise/overlap gates still come from `fuse()`.
 
@@ -32,15 +32,16 @@ DSP is the partner for everything that is physical: quality, long silence, a pos
 
 On every method except `gemini_only`:
 
-- `audio_quality` from energy SNR (5 / 15 dB) with WADA-SNR as a veto on VAD-biased “slight,” plus clip fraction.
-- `long_silence_present` from an 8 s pause with a short VAD hangover.
-- Noise: do not invent from low SNR. On `clean`, drop only weak or generic Gemini noise (low severity or chatter/ambience). Keep named medium/high events (TV, music, keyboard). If family is `static`, force present and type `sharp static` (keep Gemini’s type only when it already looks like static). If family is `uncertain`, Gemini may name a distinct audible event (TV, static) but must not invent chatter or traffic from the talker alone.
+- `audio_quality` is the worse of Gemini (echo, muffled, robotic, packet loss, plus the brief quality list) and DSP energy SNR (5 / 15 dB) with WADA-SNR as a veto on VAD-biased “slight,” plus clip fraction.
+- `long_silence_present` from an 8 s pause with a short VAD hangover. Gemini does not own this field on fusion.
+- Noise: do not invent from low SNR. On `clean`, drop only low-severity generic chatter/ambience. Keep named events (television, music, keyboard), including low severity. If family is `static`, force present; keep Gemini’s type when it already looks like static **or** is a named non-static event (television). Otherwise type `sharp static`. If family is `uncertain`, Gemini may name a distinct audible event but must not invent chatter or traffic from the talker alone. `TV` aliases to `television`.
 - Overlap: stereo both-active + low correlation sets true. Dual-mono (ρ ≥ 0.95) ignores channels. A `clean` residual does not veto Gemini overlap. Harmonicity does not set overlap by itself. Prompt `overlap_evidence: none` means no split-channel overlap, not that simultaneous speech is absent.
 - Intensity: F0 range may floor `low` → `medium` (Juslin & Laukka 2003; Scherer). Loudness is not required. Upset/distressed is not `low` (schema). **`emotional_tone` is never taken from RMS or F0.**
+- Confidence: single-window clips keep Gemini’s value. Multi-window clips mix duration-weighted tone agreement with mean winning-tone confidence. Do not Platt-scale on n=3.
 
 ## Cost
 
-Gemini bills audio at about 32 tokens per second, or 1920 tokens per minute. Gemini 3.6 Flash intro input is $0.75 / 1M tokens through 31 Dec 2026, so audio alone is about **$0.0014 per audio minute**, plus a small structured-output completion. From 1 Jan 2027 standard input is $1.50 / 1M (~$0.0029 / min). Both stay under the $0.003 / min ceiling if thinking stays at `minimal` **and** typical calls are one request (≤ 240 s, no overlapping windows). `fusion`, `lexical`, and `gemini_only` each send audio once per window. A two-call ensemble is not offered. `gemini-3.8-flash` is not the production pin: `minimal` thinking is unsupported and default medium thinking is billed as output.
+Gemini bills audio at about 32 tokens per second, or 1920 tokens per minute. Gemini 3.6 Flash intro input is $0.75 / 1M tokens through 31 Dec 2026, so audio alone is about **$0.0014 per audio minute**, plus a small structured-output completion. From 1 Jan 2027 standard input is $1.50 / 1M (~$0.0029 / min). Both stay under the $0.003 / min ceiling if thinking stays at `minimal` **and** typical calls are one request (≤ 240 s, no overlapping windows). `fusion`, `lexical`, and `gemini_only` each send audio once per window. A two-call ensemble is not offered. One retry on invalid JSON is the same SKU and stays under the ceiling if rare. `gemini-3.8-flash` is not the production pin: `minimal` thinking is unsupported and default medium thinking is billed as output.
 
 Audio leaves AutoAce infrastructure: Convex stores the bytes, Google receives windows for Gemini methods. Retention follows those providers' policies. Disclose that on evaluation.
 
@@ -56,7 +57,7 @@ The worker is a Convex scheduler chain: one clip at a time per batch, up to two 
 
 n = 3. Independent classification, no gold in the prompt.
 
-Scoring reports per-field accuracy and **tone macro F1**, matching the hidden-set criterion. On the dashboard, expand a clip for field-level pred vs gold.
+Scoring reports per-field accuracy (tone, intensity, noise present/type/severity, quality, overlap, silence, confidence within 0.2) and **tone macro F1**, matching the hidden-set criterion. On the dashboard, expand a clip for field-level pred vs gold. Compare bars include the related fields.
 
 Acoustic baseline tone confusion from the earlier labeled run (rows gold, columns predicted):
 
@@ -81,8 +82,8 @@ Do not treat n = 3 numbers as the hidden-set score. Feature thresholds are locke
 
 - Dual-mono stereo. L/R correlation on the provided calls is 1.0. Stereo overlap will not fire; Gemini and (weak) mono harmonicity remain the cues.
 - `frustrated` vs `upset` vs `distressed` will collapse under weak signal or agent-side emotion.
-- Subtle TV versus office chatter inside the speech-like bin is still Gemini. DSP will not invent the show name `TV`.
-- Packet-loss / robotic speech may look like noise to a model and like quality to DSP. Fusion keeps those fields separate on purpose.
+- Subtle television versus office chatter inside the speech-like bin is still Gemini. DSP will not invent the show name `television`.
+- Packet-loss / robotic speech may look like noise to a model and like quality to DSP. Fusion keeps those fields separate on purpose, then takes the worse quality so Gemini can still mark echo/muffled/robotic/packet-loss when DSP SNR looks fine.
 - Long dead air just under 8 s stays `long_silence_present: false`.
 - Energy SNR between 5 dB and 15 dB marks `slightly_impaired` only if WADA-SNR agrees, or if clipping is high.
 - ffmpeg spawn failure in Convex Node actions fails the clip (`decode_failed`) instead of fabricating a prediction.

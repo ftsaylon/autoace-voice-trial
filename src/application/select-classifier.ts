@@ -42,5 +42,10 @@ export const classifierForMethod = (
       model,
     })
   }
-  return new GeminiClassifier({ prompt: FUSION_PROMPT, apiKey, model })
+  return new GeminiClassifier({
+    prompt: FUSION_PROMPT,
+    ownQuality: true,
+    apiKey,
+    model,
+  })
 }

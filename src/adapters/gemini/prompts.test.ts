@@ -55,13 +55,13 @@ describe("buildGeminiUserText", () => {
   it("drops measured acoustics when Gemini owns quality and silence", () => {
     expect(
       acousticForGeminiPrompt({
-        ownQualityAndSilence: true,
+        skipAcousticContext: true,
         acoustic: measured,
       }),
     ).toBeUndefined()
     expect(
       acousticForGeminiPrompt({
-        ownQualityAndSilence: false,
+        skipAcousticContext: false,
         acoustic: measured,
       }),
     ).toEqual(measured)
@@ -72,5 +72,10 @@ describe("buildGeminiUserText", () => {
     expect(FUSION_PROMPT).toContain("upset: clearly angry")
     expect(FUSION_PROMPT).toContain("frustrated: annoyed, impatient")
     expect(FUSION_PROMPT).toContain("Do not default to office chatter")
+    expect(FUSION_PROMPT).toContain("Prefer brief wording: office chatter")
+    expect(FUSION_PROMPT).toContain("television")
+    expect(FUSION_PROMPT).toContain("Consider distortion, clipping, echo")
+    expect(FUSION_PROMPT).toContain("Do not set long silence")
+    expect(FUSION_PROMPT).not.toContain("Use TV for television")
   })
 })

@@ -1,15 +1,17 @@
 /**
  * Late fusion of Gemini (or control) semantics with DSP evidence.
  *
- * Quality SNR cutoffs stay 5 / 15 dB. WADA-SNR (Kim & Stern, Interspeech 2008)
- * can veto a VAD-biased "slightly impaired" from energy SNR.
+ * Quality: worse of Gemini vs DSP (`QUALITY_RANK`). SNR cutoffs stay 5 / 15 dB.
+ * WADA-SNR (Kim & Stern, Interspeech 2008) can veto a VAD-biased "slightly
+ * impaired" from energy SNR. Gemini can still mark echo, muffled, robotic,
+ * or packet-loss that SNR cannot see. Silence stays DSP-owned at 8 s.
  *
  * Noise: `clean` is a positive single-talker class (Boersma HNR + low unvoiced
- * SFM). On `clean`, DSP may drop only weak or generic Gemini noise (low severity
- * or chatter/ambience). Named medium/high events (TV, music, keyboard) stay.
- * `uncertain` means no residual evidence — Gemini still owns TV. `static`
- * recovers broadband hiss (Johnston 1988). DSP never invents TV from the mix's
- * 4 Hz peak.
+ * SFM). On `clean`, DSP may drop only low-severity generic chatter/ambience.
+ * Named medium/high events (television, music, keyboard) stay. `uncertain`
+ * means no residual evidence — Gemini still owns television. `static`
+ * recovers broadband hiss (Johnston 1988) without rewriting television.
+ * DSP never invents television from the mix's 4 Hz peak.
  *
  * Overlap: stereo both-active (Xiao et al., ICASSP 2011) forces overlap.
  * Dual-mono true overlap can look like one talker in the residual, so a
@@ -22,6 +24,7 @@
 import {
   AROUSAL_F0_RANGE_HZ,
   LONG_SILENCE_SEC,
+  QUALITY_RANK,
   QUALITY_SEVERE_CLIP_FRACTION,
   QUALITY_SEVERE_SNR_DB,
   QUALITY_SLIGHT_CLIP_FRACTION,
@@ -45,11 +48,44 @@ const looksGenericChatter = (type: string): boolean => {
   return /chatter|background speech|room tone|ambience/i.test(type);
 };
 
-const isWeakOrGenericNoise = (semantic: BackgroundNoise): boolean => {
+const isLowSeverityGenericChatter = (semantic: BackgroundNoise): boolean => {
   if (!semantic.present) {
     return false;
   }
-  return semantic.severity === "low" || looksGenericChatter(semantic.type);
+  return semantic.severity === "low" && looksGenericChatter(semantic.type);
+};
+
+/** Brief-aligned aliases. Unknown phrases are kept. */
+const NOISE_TYPE_ALIASES: Record<string, string> = {
+  tv: "television",
+  "tv program": "television",
+  "tv programme": "television",
+  "television program": "television",
+  "television programme": "television",
+  chatter: "office chatter",
+  "background speech": "office chatter",
+  traffic: "road noise",
+  "traffic noise": "road noise",
+  keyboard: "keyboard typing",
+  typing: "keyboard typing",
+  mechanical: "mechanical noise",
+  engine: "mechanical noise",
+};
+
+export function normalizeNoiseType(type: string): string {
+  const trimmed = type.trim();
+  if (trimmed.length === 0) {
+    return "";
+  }
+  const aliased = NOISE_TYPE_ALIASES[trimmed.toLowerCase()];
+  return aliased ?? trimmed;
+}
+
+const looksNamedNonStaticEvent = (type: string): boolean => {
+  if (looksStatic(type) || looksGenericChatter(type)) {
+    return false;
+  }
+  return type.trim().length > 0;
 };
 
 export function qualityFromAcoustic(
@@ -72,26 +108,39 @@ export function qualityFromAcoustic(
   return "clear";
 }
 
+export function fuseQuality(
+  semantic: AudioQuality,
+  acoustic: AcousticMeasurements,
+): AudioQuality {
+  const dsp = qualityFromAcoustic(acoustic);
+  return QUALITY_RANK[semantic] >= QUALITY_RANK[dsp] ? semantic : dsp;
+}
+
 export function fuseNoise(
   semantic: BackgroundNoise,
   acoustic: AcousticMeasurements,
 ): BackgroundNoise {
   if (acoustic.noiseFamily === "static") {
-    const type =
-      semantic.present && looksStatic(semantic.type)
-        ? semantic.type
-        : "sharp static";
+    if (semantic.present && looksStatic(semantic.type)) {
+      return presentNoise(normalizeNoiseType(semantic.type), semantic.severity);
+    }
+    if (semantic.present && looksNamedNonStaticEvent(semantic.type)) {
+      return presentNoise(normalizeNoiseType(semantic.type), semantic.severity);
+    }
     const severity = semantic.present ? semantic.severity : "low";
-    return presentNoise(type, severity);
+    return presentNoise("sharp static", severity);
   }
   if (
     acoustic.noiseFamily === "clean" &&
     semantic.present &&
-    isWeakOrGenericNoise(semantic)
+    isLowSeverityGenericChatter(semantic)
   ) {
     return noNoise;
   }
-  return semantic;
+  if (!semantic.present) {
+    return noNoise;
+  }
+  return presentNoise(normalizeNoiseType(semantic.type), semantic.severity);
 }
 
 export function fuseOverlap(
@@ -131,7 +180,7 @@ export function fuse(
       semantic.emotional_tone,
     ),
     background_noise: fuseNoise(semantic.background_noise, acoustic),
-    audio_quality: qualityFromAcoustic(acoustic),
+    audio_quality: fuseQuality(semantic.audio_quality, acoustic),
     speaker_overlap_present: fuseOverlap(
       semantic.speaker_overlap_present,
       acoustic,

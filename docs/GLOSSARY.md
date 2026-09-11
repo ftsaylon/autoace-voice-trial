@@ -10,7 +10,7 @@ A task is one field we score. Emotional-tone classification, background-noise de
 
 A method is a named pipeline you can pick in the dashboard or CLI. It is stored on the batch as `method`. The current ids are `fusion`, `baseline`, `lexical`, `prosody`, and `gemini_only`.
 
-A method chooses a classifier, whether `fuse()` overwrites quality and silence, the model string shown on the batch, and the cost assumption. The catalog lives in `src/application/methods.ts`.
+A method chooses a classifier, whether `fuse()` runs, the model string shown on the batch, and the cost assumption. The catalog lives in `src/application/methods.ts`.
 
 ## Classifier
 
@@ -26,7 +26,7 @@ The feature extractor is `FfmpegAcousticAnalyzer` plus `measureStereo` in `src/a
 
 ## Late fusion
 
-Late fusion combines outputs after each subsystem has already decided. In this repo, `fuse()` in `src/domain/fusion.ts` writes `audio_quality` and `long_silence_present` from DSP, drops only weak/generic Gemini noise on a `clean` residual, may set stereo overlap, and may floor intensity from F0 range (not loudness). It never changes `emotional_tone`. The method named `fusion` uses that function. The function also runs for `baseline`, `lexical`, and `prosody`. The method `gemini_only` skips it.
+Late fusion combines outputs after each subsystem has already decided. In this repo, `fuse()` in `src/domain/fusion.ts` writes `long_silence_present` from DSP, sets `audio_quality` to the worse of Gemini vs DSP, drops only low-severity generic chatter on a `clean` residual, may set stereo overlap, and may floor intensity from F0 range (not loudness). It never changes `emotional_tone`. The method named `fusion` uses that function. The function also runs for `baseline`, `lexical`, and `prosody`. The method `gemini_only` skips it.
 
 ## Control
 

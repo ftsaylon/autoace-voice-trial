@@ -6,6 +6,7 @@ import {
   noNoise,
   presentNoise,
   semanticClassifierSchema,
+  normalizeNoiseType,
   type AcousticMeasurements,
   type AudioQuality,
   type ClipPrediction,
@@ -45,30 +46,109 @@ export const GEMINI_AUDIO_FILENAME = "clip.wav"
 
 export const CLASSIFIER_PROMPT = FUSION_PROMPT
 
+export const GEMINI_INVALID_OUTPUT_RETRIES = 1
+
+const qualityClassifierSchema = semanticClassifierSchema.extend({
+  audio_quality: z.enum(AUDIO_QUALITIES),
+});
+
 const fullClassifierSchema = semanticClassifierSchema.extend({
   audio_quality: z.enum(AUDIO_QUALITIES),
   long_silence_present: z.boolean(),
 });
 
+export type GeminiStructuredOutput = {
+  emotional_tone: ClipPrediction["emotional_tone"];
+  emotional_intensity: ClipPrediction["emotional_intensity"];
+  background_noise_present: boolean;
+  background_noise_type: string;
+  background_noise_severity: "none" | "low" | "medium" | "high";
+  speaker_overlap_present: boolean;
+  confidence: number;
+  audio_quality?: AudioQuality;
+  long_silence_present?: boolean;
+};
+
+export type GeminiGenerateInput = {
+  modelId: string;
+  apiKey: string;
+  ownQuality: boolean;
+  ownSilence: boolean;
+  userText: string;
+  audio: { bytes: Uint8Array; mediaType: string };
+};
+
+export type GeminiGenerateFn = (
+  input: GeminiGenerateInput,
+) => Promise<{ output?: GeminiStructuredOutput | null }>;
+
+const schemaFor = (ownQuality: boolean, ownSilence: boolean) => {
+  if (ownQuality && ownSilence) {
+    return fullClassifierSchema;
+  }
+  if (ownQuality) {
+    return qualityClassifierSchema;
+  }
+  return semanticClassifierSchema;
+};
+
+const defaultGenerate: GeminiGenerateFn = async (input) => {
+  const google = createGoogleGenerativeAI({ apiKey: input.apiKey });
+  const result = await generateText({
+    model: google(input.modelId),
+    output: Output.object({
+      schema: schemaFor(input.ownQuality, input.ownSilence),
+    }),
+    providerOptions: {
+      google: {
+        thinkingConfig: {
+          thinkingLevel: "minimal",
+        },
+      },
+    },
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: input.userText,
+          },
+          {
+            type: "file",
+            data: input.audio.bytes,
+            mediaType: input.audio.mediaType,
+            filename: GEMINI_AUDIO_FILENAME,
+          },
+        ],
+      },
+    ],
+  });
+  return { output: result.output };
+};
+
 export type GeminiClassifierOptions = {
   prompt: string;
+  ownQuality?: boolean;
+  ownSilence?: boolean;
   ownQualityAndSilence?: boolean;
   apiKey?: string;
   model?: string;
+  generate?: GeminiGenerateFn;
+};
+
+export const resolveOwnFields = (
+  options: GeminiClassifierOptions,
+): { ownQuality: boolean; ownSilence: boolean } => {
+  const both = options.ownQualityAndSilence === true;
+  return {
+    ownQuality: options.ownQuality === true || both,
+    ownSilence: options.ownSilence === true || both,
+  };
 };
 
 export function toPrediction(
-  output: {
-    emotional_tone: ClipPrediction["emotional_tone"];
-    emotional_intensity: ClipPrediction["emotional_intensity"];
-    background_noise_present: boolean;
-    background_noise_type: string;
-    background_noise_severity: "none" | "low" | "medium" | "high";
-    speaker_overlap_present: boolean;
-    confidence: number;
-    audio_quality?: AudioQuality;
-    long_silence_present?: boolean;
-  },
+  output: GeminiStructuredOutput,
 ): Result<ClipPrediction, AnalyzeError> {
   const audio_quality = output.audio_quality ?? "clear";
   const long_silence_present = output.long_silence_present ?? false;
@@ -83,10 +163,8 @@ export function toPrediction(
       confidence: output.confidence,
     });
   }
-  if (
-    output.background_noise_type.trim().length === 0 ||
-    output.background_noise_severity === "none"
-  ) {
+  const type = normalizeNoiseType(output.background_noise_type);
+  if (type.length === 0 || output.background_noise_severity === "none") {
     return err({
       tag: "classifier_invalid_output",
       cause: "noise present without type and non-none severity",
@@ -95,10 +173,7 @@ export function toPrediction(
   return ok({
     emotional_tone: output.emotional_tone,
     emotional_intensity: output.emotional_intensity,
-    background_noise: presentNoise(
-      output.background_noise_type,
-      output.background_noise_severity,
-    ),
+    background_noise: presentNoise(type, output.background_noise_severity),
     audio_quality,
     speaker_overlap_present: output.speaker_overlap_present,
     long_silence_present,
@@ -116,62 +191,58 @@ export class GeminiClassifier implements SemanticClassifier {
     durationSec: number;
     acoustic?: AcousticMeasurements;
   }): Promise<Result<ClipPrediction, AnalyzeError>> {
+    const generate = this.options.generate ?? defaultGenerate;
     const apiKey = resolveGeminiApiKey(this.options.apiKey);
-    if (!apiKey || !classifierIsConfigured(apiKey)) {
+    if (!this.options.generate && (!apiKey || !classifierIsConfigured(apiKey))) {
       return err({ tag: "classifier_unavailable" });
     }
-    const google = createGoogleGenerativeAI({ apiKey });
-    const ownQuality = this.options.ownQualityAndSilence === true;
-    try {
-      const result = await generateText({
-        model: google(resolveGeminiModel(this.options.model)),
-        output: Output.object({
-          schema: ownQuality ? fullClassifierSchema : semanticClassifierSchema,
-        }),
-        providerOptions: {
-          google: {
-            thinkingConfig: {
-              thinkingLevel: "minimal",
-            },
-          },
-        },
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: buildGeminiUserText({
-                  prompt: this.options.prompt,
-                  durationSec: input.durationSec,
-                  acoustic: acousticForGeminiPrompt({
-                    ownQualityAndSilence: ownQuality,
-                    acoustic: input.acoustic,
-                  }),
-                }),
-              },
-              {
-                type: "file",
-                data: input.audio.bytes,
-                mediaType: input.audio.mediaType,
-                filename: GEMINI_AUDIO_FILENAME,
-              },
-            ],
-          },
-        ],
-      });
-      if (!result.output) {
-        return err({
+    const { ownQuality, ownSilence } = resolveOwnFields(this.options);
+    const userText = buildGeminiUserText({
+      prompt: this.options.prompt,
+      durationSec: input.durationSec,
+      acoustic: acousticForGeminiPrompt({
+        skipAcousticContext: ownQuality && ownSilence,
+        acoustic: input.acoustic,
+      }),
+    });
+    const generateInput: GeminiGenerateInput = {
+      modelId: resolveGeminiModel(this.options.model),
+      apiKey: apiKey ?? "test",
+      ownQuality,
+      ownSilence,
+      userText,
+      audio: {
+        bytes: input.audio.bytes,
+        mediaType: input.audio.mediaType,
+      },
+    };
+    const attempts = 1 + GEMINI_INVALID_OUTPUT_RETRIES;
+    let lastError: AnalyzeError = {
+      tag: "classifier_invalid_output",
+      cause: "Gemini request failed",
+    };
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        const result = await generate(generateInput);
+        if (!result.output) {
+          lastError = {
+            tag: "classifier_invalid_output",
+            cause: "empty structured output",
+          };
+          continue;
+        }
+        const parsed = toPrediction(result.output);
+        if (parsed.ok) {
+          return parsed;
+        }
+        lastError = parsed.error;
+      } catch (error) {
+        lastError = {
           tag: "classifier_invalid_output",
-          cause: "empty structured output",
-        });
+          cause: error instanceof Error ? error.message : "Gemini request failed",
+        };
       }
-      return toPrediction(result.output);
-    } catch (error) {
-      return err({
-        tag: "classifier_invalid_output",
-        cause: error instanceof Error ? error.message : "Gemini request failed",
-      });
     }
+    return err(lastError);
   }
 }

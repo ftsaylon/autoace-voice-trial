@@ -46,7 +46,7 @@ describe("scoresForPairs", () => {
     expect(scoresForPairs([])).toBeNull()
   })
 
-  it("reports tone accuracy, tone F1, and boolean field accuracy", () => {
+  it("reports tone accuracy, tone F1, related fields, and boolean field accuracy", () => {
     const scores = scoresForPairs([
       {
         gold: pred("neutral"),
@@ -54,24 +54,32 @@ describe("scoresForPairs", () => {
       },
       {
         gold: pred("upset", {
-          background_noise: presentNoise("TV", "medium"),
+          emotional_intensity: "high",
+          background_noise: presentNoise("television", "medium"),
           audio_quality: "slightly_impaired",
           speaker_overlap_present: true,
           long_silence_present: true,
+          confidence: 0.8,
         }),
         prediction: pred("frustrated", {
+          emotional_intensity: "high",
           background_noise: presentNoise("TV", "medium"),
           audio_quality: "slightly_impaired",
           speaker_overlap_present: true,
           long_silence_present: false,
+          confidence: 0.72,
         }),
       },
     ])
     expect(scores?.emotional_tone.accuracy).toBe(0.5)
     expect(scores?.emotional_tone.f1).toBeCloseTo(1 / 3, 5)
+    expect(scores?.emotional_intensity.accuracy).toBe(1)
     expect(scores?.background_noise_present.accuracy).toBe(1)
+    expect(scores?.background_noise_type.accuracy).toBe(1)
+    expect(scores?.background_noise_severity.accuracy).toBe(1)
     expect(scores?.audio_quality.accuracy).toBe(1)
     expect(scores?.speaker_overlap_present.accuracy).toBe(1)
     expect(scores?.long_silence_present.accuracy).toBe(0.5)
+    expect(scores?.confidence.accuracy).toBe(1)
   })
 })

@@ -310,15 +310,27 @@ const ResultsBody = ({
   return (
     <>
       {scores ? (
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <ScoreCard
             label="Tone"
             accuracy={scores.emotional_tone.accuracy}
             extra={`F1 ${formatF1(scores.emotional_tone.f1 ?? 0)}`}
           />
           <ScoreCard
+            label="Intensity"
+            accuracy={scores.emotional_intensity.accuracy}
+          />
+          <ScoreCard
             label="Noise present"
             accuracy={scores.background_noise_present.accuracy}
+          />
+          <ScoreCard
+            label="Noise type"
+            accuracy={scores.background_noise_type.accuracy}
+          />
+          <ScoreCard
+            label="Noise severity"
+            accuracy={scores.background_noise_severity.accuracy}
           />
           <ScoreCard label="Quality" accuracy={scores.audio_quality.accuracy} />
           <ScoreCard
@@ -328,6 +340,11 @@ const ResultsBody = ({
           <ScoreCard
             label="Silence"
             accuracy={scores.long_silence_present.accuracy}
+          />
+          <ScoreCard
+            label="Confidence"
+            accuracy={scores.confidence.accuracy}
+            extra="|Δ| ≤ 0.2"
           />
         </section>
       ) : null}

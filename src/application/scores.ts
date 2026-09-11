@@ -1,4 +1,4 @@
-import { EMOTIONAL_TONES, type ClipPrediction, type EmotionalTone } from "@/domain"
+import { EMOTIONAL_TONES, normalizeNoiseType, type ClipPrediction, type EmotionalTone } from "@/domain"
 
 export type FieldScore = {
   accuracy: number
@@ -9,16 +9,22 @@ export type FieldScore = {
 
 export type FieldScores = {
   emotional_tone: FieldScore
+  emotional_intensity: FieldScore
   background_noise_present: FieldScore
+  background_noise_type: FieldScore
+  background_noise_severity: FieldScore
   audio_quality: FieldScore
   speaker_overlap_present: FieldScore
   long_silence_present: FieldScore
+  confidence: FieldScore
 }
 
 export type LabeledPair = {
   gold: ClipPrediction
   prediction: ClipPrediction
 }
+
+const CONFIDENCE_MATCH_MAX_ABS = 0.2
 
 const scoreRatio = (correct: number, total: number): FieldScore => {
   return {
@@ -84,6 +90,13 @@ export const toneClassCounts = (
   return counts
 }
 
+const noiseTypeKey = (prediction: ClipPrediction): string => {
+  if (!prediction.background_noise.present) {
+    return ""
+  }
+  return normalizeNoiseType(prediction.background_noise.type).toLowerCase()
+}
+
 export const scoresForPairs = (pairs: LabeledPair[]): FieldScores | null => {
   if (pairs.length === 0) {
     return null
@@ -102,10 +115,28 @@ export const scoresForPairs = (pairs: LabeledPair[]): FieldScores | null => {
         EMOTIONAL_TONES,
       ),
     },
+    emotional_intensity: scoreRatio(
+      pairs.filter(
+        (pair) => pair.gold.emotional_intensity === pair.prediction.emotional_intensity,
+      ).length,
+      pairs.length,
+    ),
     background_noise_present: scoreRatio(
       pairs.filter(
         (pair) =>
           pair.gold.background_noise.present === pair.prediction.background_noise.present,
+      ).length,
+      pairs.length,
+    ),
+    background_noise_type: scoreRatio(
+      pairs.filter((pair) => noiseTypeKey(pair.gold) === noiseTypeKey(pair.prediction))
+        .length,
+      pairs.length,
+    ),
+    background_noise_severity: scoreRatio(
+      pairs.filter(
+        (pair) =>
+          pair.gold.background_noise.severity === pair.prediction.background_noise.severity,
       ).length,
       pairs.length,
     ),
@@ -124,6 +155,14 @@ export const scoresForPairs = (pairs: LabeledPair[]): FieldScores | null => {
     long_silence_present: scoreRatio(
       pairs.filter(
         (pair) => pair.gold.long_silence_present === pair.prediction.long_silence_present,
+      ).length,
+      pairs.length,
+    ),
+    confidence: scoreRatio(
+      pairs.filter(
+        (pair) =>
+          Math.abs(pair.gold.confidence - pair.prediction.confidence) <=
+          CONFIDENCE_MATCH_MAX_ABS,
       ).length,
       pairs.length,
     ),
