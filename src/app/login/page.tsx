@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuthActions } from "@convex-dev/auth/react"
-import { AlertCircleIcon } from "lucide-react"
+import { AlertCircleIcon, EyeIcon, EyeOffIcon } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -28,8 +28,14 @@ export default function LoginPage() {
   const { signIn } = useAuthActions()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
+  const [fieldsVisible, setFieldsVisible] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+  const fieldType = fieldsVisible ? "text" : "password"
+
+  const handleToggleFields = () => {
+    setFieldsVisible((visible) => !visible)
+  }
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -95,6 +101,7 @@ export default function LoginPage() {
                 <Label htmlFor="username">Username</Label>
                 <Input
                   id="username"
+                  type={fieldType}
                   autoComplete="username"
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
@@ -105,13 +112,29 @@ export default function LoginPage() {
                 <Label htmlFor="password">Password</Label>
                 <Input
                   id="password"
-                  type="password"
+                  type={fieldType}
                   autoComplete="current-password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   required
                 />
               </div>
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-8 w-full"
+                aria-pressed={fieldsVisible}
+                aria-controls="username password"
+                aria-label={fieldsVisible ? "Hide login fields" : "Show login fields"}
+                onClick={handleToggleFields}
+              >
+                {fieldsVisible ? (
+                  <EyeOffIcon data-icon="inline-start" />
+                ) : (
+                  <EyeIcon data-icon="inline-start" />
+                )}
+                {fieldsVisible ? "Hide credentials" : "Show credentials"}
+              </Button>
               {error ? (
                 <Alert variant="destructive">
                   <AlertCircleIcon className="size-4" />

@@ -60,5 +60,8 @@ docs/assessment.md
 
 .env.convex-auth
 
-# Interview coaching — do not publish
-submission/INTERNAL_INTERVIEW_GUIDE.md
+# Private notes inside the pack folder — do not publish
+/submission/internal/
+
+# Generated evaluator zip
+/autoace-trial-deliverables.zip

@@ -65,7 +65,7 @@ Scoring reports per-field accuracy (tone, intensity, noise present/type/severity
 
 ### Production Fusion — 2026-09-11 hosted run
 
-Same three clips, `gemini-3.6-flash`, thinking `minimal`, current `fuse()` policy. Predictions are in `submission/predictions/`.
+Same three clips, `gemini-3.6-flash`, thinking `minimal`, current `fuse()` policy. Predictions are in `predictions/` in the submission zip.
 
 | Field | Accuracy | Notes |
 | --- | --- | --- |
@@ -117,6 +117,6 @@ A Fusion run on 2026-09-10 22:53 (previous `none`/speech_like gates) was also to
 
 ## Next steps
 
-- Measure every method on the three labeled calls (when audio is available) and a 40-clip hidden-set rehearsal.
+- Re-run every method on a larger labeled set and a 40-clip hidden-set rehearsal.
 - Do not iterate thresholds until those three clips are perfect.
 - Fit confidence to reliability diagrams once n is larger than a handful.

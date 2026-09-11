@@ -16,7 +16,7 @@ Use the live site. Do not install anything.
 2. Sign in with username `autoace` and password `trial-eval-2026`
 3. Create a batch from a ZIP (audio files + `labels.csv`)
 4. Pick **Fusion**, press **Run**, watch clip logs
-5. Download CSV/JSON when the batch finishes
+5. Download ZIP when the batch finishes (`results.csv` and `results.json` inside)
 
 ## 2. Reproduce locally (no MCP)
 
