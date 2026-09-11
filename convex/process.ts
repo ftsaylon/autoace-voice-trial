@@ -1,10 +1,10 @@
 import { v } from "convex/values"
 import { internalMutation, type MutationCtx } from "./_generated/server"
-import { internal } from "./_generated/api"
 import type { Doc } from "./_generated/dataModel"
 import { CLAIM_STALE_MS, MAX_CLIP_COUNT } from "../src/domain/constants"
-import { hasPendingRuns } from "../src/application/run-policy"
+import { hasPendingRuns, inFlightToSchedule } from "../src/application/run-policy"
 import { MAX_RUNNING_BATCHES } from "./lib/constants"
+import { scheduleClipWorkers } from "./lib/schedule-clip-workers"
 import { formatStoredAnalyzeError } from "../src/domain/errors"
 import { methodValidator } from "./schema"
 import {
@@ -122,6 +122,25 @@ export const claimNextRound = internalMutation({
     runs = await listRuns(ctx, args.batchId)
 
     const claims = []
+    let liveRunning = 0
+    for (const run of runs) {
+      if (run.status !== "running") {
+        continue
+      }
+      const runningRows = await ctx.db
+        .query("clipResults")
+        .withIndex("by_run_and_state", (q) =>
+          q.eq("runId", run._id).eq("state", "running"),
+        )
+        .take(MAX_CLIP_COUNT)
+      liveRunning += runningRows.filter(
+        (row) => row.claimedAt === undefined || row.claimedAt >= staleBefore,
+      ).length
+    }
+    // One clip per processNext invocation. Other workers fill the cap.
+    if (inFlightToSchedule(liveRunning, 1) === 0) {
+      return []
+    }
     for (const run of runs) {
       if (run.status !== "running") {
         continue
@@ -129,7 +148,7 @@ export const claimNextRound = internalMutation({
       const claimed = await claimFromRun(ctx, batch, run, now, staleBefore)
       if (claimed) {
         claims.push(claimed)
-        continue
+        break
       }
       await completeRunIfIdle(ctx, run)
     }
@@ -329,9 +348,7 @@ export const startNextQueued = internalMutation({
       message: "Dequeued and started",
       createdAt: now,
     })
-    await ctx.scheduler.runAfter(0, internal.processActions.processNext, {
-      batchId: next._id,
-    })
+    await scheduleClipWorkers(ctx, next._id, next.clipCount)
     return null
   },
 })

@@ -4,7 +4,7 @@ export const LONG_SILENCE_SEC = 8;
 /** Gemini fallback only. Clips ≤ WINDOW_FULL_CLIP_MAX_SEC are one request (cost ceiling). */
 export const WINDOW_SEC = 20;
 export const WINDOW_OVERLAP_SEC = 0;
-export const WINDOW_FULL_CLIP_MAX_SEC = 240;
+export const WINDOW_FULL_CLIP_MAX_SEC = 900;
 
 /** Hangover after energy VAD so a click does not split an 8 s pause (ICSI SAD style). */
 export const VAD_HANGOVER_FRAMES = 4;

@@ -191,8 +191,9 @@ export const processNext = internalAction({
       return null
     }
 
-    await Promise.all(claims.map((claimed) => processClaim(ctx, claimed)))
+    await processClaim(ctx, claims[0]!)
 
+    // One function per clip. Chain one successor so the start-time pool stays filled.
     await ctx.scheduler.runAfter(0, internal.processActions.processNext, {
       batchId: args.batchId,
     })

@@ -67,12 +67,12 @@ sequenceDiagram
   UI->>Convex: Upload clips in parallel
   User->>UI: Pick method anytime, then Run
   UI->>Convex: createDraft, start
-  Convex->>Worker: scheduler.runAfter processNext
-  loop Each queued clip
-    Worker->>Worker: ffmpeg stereo decode, acoustics, windows
-    Worker->>Gemini: classify clip or window as clip.wav when the method needs Gemini
+  Convex->>Worker: schedule up to 8 processNext (one function per clip)
+  loop Up to 8 in-flight clip workers
+    Worker->>Worker: ffmpeg stereo decode, acoustics
+    Worker->>Gemini: one classify call per typical clip
     Worker->>Convex: stage logs, complete clip
-    Worker->>Worker: schedule next clip
+    Worker->>Worker: chain one successor
   end
   Convex-->>UI: useQuery updates list, detail, logs
 ```
@@ -82,7 +82,7 @@ sequenceDiagram
 3. Method (`fusion`, `baseline`, `lexical`, `prosody`, `gemini_only`) can be chosen with or without files.
 4. Run creates a draft then starts it. Drafts are not processed.
 5. At most two batches run at once. Further starts are `queued`.
-6. Clips inside a **run** are serialized (Gemini RPM). Multiple methods on the same batch run one after another and occupy one running-batch slot.
+6. Up to eight clips in a batch each get their own `processNext` action (`MAX_IN_FLIGHT_CLIPS`). That is the same shape as one worker per method run. The hidden-set size is unknown (parse cap 50); the pool fills then chains so wall time is `~ceil(n / 8) × one Gemini RTT`, not `n × RTT`. Two batches × 8 = 16 Node+ffmpeg+Gemini. Windowing inside a clip is serial and only used above 15 minutes. Multiple methods on the same batch occupy one running-batch slot.
 7. `onStage` writes decode / acoustics / window i/n / fuse into `clipResults.stage` and `logs`. A log failure cannot fail the clip.
 8. The UI never polls a process endpoint. `useQuery` on batch, clips, runs, and logs is the live stream.
 

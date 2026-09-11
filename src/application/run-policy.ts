@@ -1,6 +1,25 @@
 export const MAX_RUNNING_BATCHES = 2
 
+/** Concurrent per-clip processNext actions per batch. Not unbounded: 2 batches × 8 = 16 Node+ffmpeg+Gemini. */
+export const MAX_IN_FLIGHT_CLIPS = 8
+
 export const processesOnCreate = false
+
+/**
+ * How many more clips to claim so in-flight work fills up to `cap`.
+ * `running` is already-claimed clips; `remaining` is still queued (or stale).
+ */
+export const inFlightToSchedule = (
+  running: number,
+  remaining: number,
+  cap = MAX_IN_FLIGHT_CLIPS,
+): number => {
+  if (remaining <= 0 || cap <= 0) {
+    return 0
+  }
+  const slots = Math.max(0, cap - Math.max(0, running))
+  return Math.min(slots, remaining)
+}
 
 export type RunQueueStatus = "queued" | "running" | "complete" | "failed"
 

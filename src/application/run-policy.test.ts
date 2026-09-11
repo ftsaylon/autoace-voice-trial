@@ -4,6 +4,8 @@ import {
   decideBatchLaunch,
   failedResultsForRun,
   hasPendingRuns,
+  inFlightToSchedule,
+  MAX_IN_FLIGHT_CLIPS,
   pickRunningRun,
   processesOnCreate,
   queuedRunsOldestFirst,
@@ -79,6 +81,40 @@ describe("retryRun isolation", () => {
     ]
     expect(failedResultsForRun(results, "a")).toEqual([{ runId: "a", state: "failed" }])
     expect(failedResultsForRun(results, "b")).toEqual([{ runId: "b", state: "failed" }])
+  })
+})
+
+describe("in-flight clip pool", () => {
+  it("fills to the cap when many clips remain and none are running", () => {
+    expect(inFlightToSchedule(0, 50)).toBe(MAX_IN_FLIGHT_CLIPS)
+    expect(inFlightToSchedule(0, 2)).toBe(2)
+    expect(inFlightToSchedule(MAX_IN_FLIGHT_CLIPS, 10)).toBe(0)
+    expect(inFlightToSchedule(MAX_IN_FLIGHT_CLIPS - 1, 10)).toBe(1)
+  })
+
+  it("fills to the cap then chains without exceeding it", () => {
+    const clipCount = 50
+    let queued = clipCount
+    let running = 0
+    let completed = 0
+    let maxRunning = 0
+    const spawn = () => {
+      const n = inFlightToSchedule(running, queued)
+      for (let i = 0; i < n; i++) {
+        queued -= 1
+        running += 1
+      }
+      maxRunning = Math.max(maxRunning, running)
+    }
+    spawn()
+    expect(running).toBe(MAX_IN_FLIGHT_CLIPS)
+    while (running > 0) {
+      running -= 1
+      completed += 1
+      spawn()
+    }
+    expect(completed).toBe(50)
+    expect(maxRunning).toBe(MAX_IN_FLIGHT_CLIPS)
   })
 })
 
