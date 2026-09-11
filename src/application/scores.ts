@@ -19,6 +19,8 @@ export type FieldScores = {
   confidence: FieldScore
 }
 
+export type ScoredFieldKey = keyof FieldScores
+
 export type LabeledPair = {
   gold: ClipPrediction
   prediction: ClipPrediction
@@ -97,12 +99,41 @@ const noiseTypeKey = (prediction: ClipPrediction): string => {
   return normalizeNoiseType(prediction.background_noise.type).toLowerCase()
 }
 
+export const fieldMatches = (
+  gold: ClipPrediction,
+  prediction: ClipPrediction,
+  key: ScoredFieldKey,
+): boolean => {
+  switch (key) {
+    case "emotional_tone":
+      return gold.emotional_tone === prediction.emotional_tone
+    case "emotional_intensity":
+      return gold.emotional_intensity === prediction.emotional_intensity
+    case "background_noise_present":
+      return gold.background_noise.present === prediction.background_noise.present
+    case "background_noise_type":
+      return noiseTypeKey(gold) === noiseTypeKey(prediction)
+    case "background_noise_severity":
+      return gold.background_noise.severity === prediction.background_noise.severity
+    case "audio_quality":
+      return gold.audio_quality === prediction.audio_quality
+    case "speaker_overlap_present":
+      return gold.speaker_overlap_present === prediction.speaker_overlap_present
+    case "long_silence_present":
+      return gold.long_silence_present === prediction.long_silence_present
+    case "confidence":
+      return (
+        Math.abs(gold.confidence - prediction.confidence) <= CONFIDENCE_MATCH_MAX_ABS
+      )
+  }
+}
+
 export const scoresForPairs = (pairs: LabeledPair[]): FieldScores | null => {
   if (pairs.length === 0) {
     return null
   }
-  const toneCorrect = pairs.filter(
-    (pair) => pair.gold.emotional_tone === pair.prediction.emotional_tone,
+  const toneCorrect = pairs.filter((pair) =>
+    fieldMatches(pair.gold, pair.prediction, "emotional_tone"),
   ).length
   return {
     emotional_tone: {
@@ -116,54 +147,49 @@ export const scoresForPairs = (pairs: LabeledPair[]): FieldScores | null => {
       ),
     },
     emotional_intensity: scoreRatio(
-      pairs.filter(
-        (pair) => pair.gold.emotional_intensity === pair.prediction.emotional_intensity,
+      pairs.filter((pair) =>
+        fieldMatches(pair.gold, pair.prediction, "emotional_intensity"),
       ).length,
       pairs.length,
     ),
     background_noise_present: scoreRatio(
-      pairs.filter(
-        (pair) =>
-          pair.gold.background_noise.present === pair.prediction.background_noise.present,
+      pairs.filter((pair) =>
+        fieldMatches(pair.gold, pair.prediction, "background_noise_present"),
       ).length,
       pairs.length,
     ),
     background_noise_type: scoreRatio(
-      pairs.filter((pair) => noiseTypeKey(pair.gold) === noiseTypeKey(pair.prediction))
-        .length,
+      pairs.filter((pair) =>
+        fieldMatches(pair.gold, pair.prediction, "background_noise_type"),
+      ).length,
       pairs.length,
     ),
     background_noise_severity: scoreRatio(
-      pairs.filter(
-        (pair) =>
-          pair.gold.background_noise.severity === pair.prediction.background_noise.severity,
+      pairs.filter((pair) =>
+        fieldMatches(pair.gold, pair.prediction, "background_noise_severity"),
       ).length,
       pairs.length,
     ),
     audio_quality: scoreRatio(
-      pairs.filter((pair) => pair.gold.audio_quality === pair.prediction.audio_quality)
+      pairs.filter((pair) => fieldMatches(pair.gold, pair.prediction, "audio_quality"))
         .length,
       pairs.length,
     ),
     speaker_overlap_present: scoreRatio(
-      pairs.filter(
-        (pair) =>
-          pair.gold.speaker_overlap_present === pair.prediction.speaker_overlap_present,
+      pairs.filter((pair) =>
+        fieldMatches(pair.gold, pair.prediction, "speaker_overlap_present"),
       ).length,
       pairs.length,
     ),
     long_silence_present: scoreRatio(
-      pairs.filter(
-        (pair) => pair.gold.long_silence_present === pair.prediction.long_silence_present,
+      pairs.filter((pair) =>
+        fieldMatches(pair.gold, pair.prediction, "long_silence_present"),
       ).length,
       pairs.length,
     ),
     confidence: scoreRatio(
-      pairs.filter(
-        (pair) =>
-          Math.abs(pair.gold.confidence - pair.prediction.confidence) <=
-          CONFIDENCE_MATCH_MAX_ABS,
-      ).length,
+      pairs.filter((pair) => fieldMatches(pair.gold, pair.prediction, "confidence"))
+        .length,
       pairs.length,
     ),
   }

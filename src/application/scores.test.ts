@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { noNoise, presentNoise, type ClipPrediction } from "@/domain"
-import { macroF1, scoresForPairs } from "./scores"
+import { fieldMatches, macroF1, scoresForPairs } from "./scores"
 
 const pred = (
   tone: ClipPrediction["emotional_tone"],
@@ -38,6 +38,30 @@ describe("macroF1", () => {
       ["neutral", "upset", "frustrated", "satisfied"],
     )
     expect(f1).toBeCloseTo(5 / 9, 5)
+  })
+})
+
+describe("fieldMatches", () => {
+  it("treats TV and television as the same noise type", () => {
+    const gold = pred("neutral", {
+      background_noise: presentNoise("TV", "medium"),
+    })
+    const prediction = pred("neutral", {
+      background_noise: presentNoise("television", "medium"),
+    })
+    expect(fieldMatches(gold, prediction, "background_noise_type")).toBe(true)
+  })
+
+  it("allows confidence within the scoring tolerance", () => {
+    const gold = pred("neutral", { confidence: 0.82 })
+    const prediction = pred("neutral", { confidence: 0.85 })
+    expect(fieldMatches(gold, prediction, "confidence")).toBe(true)
+  })
+
+  it("rejects confidence outside the scoring tolerance", () => {
+    const gold = pred("neutral", { confidence: 0.5 })
+    const prediction = pred("neutral", { confidence: 0.8 })
+    expect(fieldMatches(gold, prediction, "confidence")).toBe(false)
   })
 })
 

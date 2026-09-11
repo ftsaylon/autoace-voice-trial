@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { noNoise, type ClipPrediction } from "@/domain"
+import { noNoise, presentNoise, type ClipPrediction } from "@/domain"
 import { autoAceJsonString } from "@/domain"
 import {
   agreementRate,
@@ -122,6 +122,28 @@ describe("confusionMatrixForRun", () => {
 })
 
 describe("heatmapRows", () => {
+  it("matches TV gold to television predictions on noise type", () => {
+    const rows = heatmapRows(
+      [
+        clip(
+          "a.wav",
+          pred("neutral", { background_noise: presentNoise("TV", "medium") }),
+          {
+            fusion: pred("neutral", {
+              background_noise: presentNoise("television", "medium"),
+            }),
+          },
+        ),
+      ],
+      ["fusion"],
+      "background_noise_type",
+    )
+    expect(rows[0]?.cells[0]).toMatchObject({
+      value: "television",
+      matchGold: true,
+    })
+  })
+
   it("flags gold mismatches and majority disagreements", () => {
     const rows = heatmapRows(
       [

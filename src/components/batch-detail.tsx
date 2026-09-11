@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { formatAnalyzeError, type AnalyzeError } from "@/domain"
+import { fieldMatches } from "@/application/scores"
 import {
   DIFF_FIELDS,
   flattenPrediction,
@@ -402,7 +403,10 @@ const ResultsBody = ({
                         const goldValue = goldFlat
                           ? formatFieldValue(goldFlat[field.key])
                           : null
-                        const match = goldValue === null || goldValue === pred
+                        const match =
+                          gold === null ||
+                          (prediction !== null &&
+                            fieldMatches(gold, prediction, field.key))
                         return (
                           <div
                             key={field.key}

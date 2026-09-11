@@ -4,7 +4,12 @@ import {
   type ClipPrediction,
   type EmotionalTone,
 } from "@/domain"
-import { scoresForPairs, type FieldScores, type LabeledPair } from "@/application/scores"
+import {
+  fieldMatches,
+  scoresForPairs,
+  type FieldScores,
+  type LabeledPair,
+} from "@/application/scores"
 export type CompareClipInput = {
   id: string
   name: string
@@ -265,7 +270,9 @@ export const heatmapRows = (
           runId,
           value: prediction ? fieldValue(prediction, field) : "—",
           matchGold:
-            gold === null || !prediction ? null : fieldValue(prediction, field) === gold,
+            goldPred === null || !prediction
+              ? null
+              : fieldMatches(goldPred, prediction, field),
         }
       })
       const succeeded = raw.filter((cell) => cell.value !== "—").map((cell) => cell.value)
