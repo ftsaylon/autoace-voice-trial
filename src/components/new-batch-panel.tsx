@@ -287,6 +287,16 @@ export const NewBatchPanel = ({
       : "Starting…"
     : "Run"
 
+  const allMethodsSelected = METHOD_IDS.every((id) => methods.includes(id))
+
+  const handleSelectAllChange = (checked: boolean) => {
+    if (checked) {
+      setMethods([...METHOD_IDS])
+      return
+    }
+    setMethods([DEFAULT_METHOD])
+  }
+
   const dropzoneClass = cn(
     "rounded-xl border bg-card transition-colors",
     dragging
@@ -525,7 +535,20 @@ export const NewBatchPanel = ({
 
       <div className="space-y-5">
         <div>
-          <h2 className="text-sm font-medium">Methods</h2>
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="text-sm font-medium">Methods</h2>
+            <label className="inline-flex shrink-0 cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                className="size-4 rounded border border-border accent-foreground"
+                checked={allMethodsSelected}
+                disabled={starting}
+                aria-label="Select all methods"
+                onChange={(event) => handleSelectAllChange(event.target.checked)}
+              />
+              Select all
+            </label>
+          </div>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             Select one or more methods to run on the same files. Gemini methods
             cost extra.
