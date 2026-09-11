@@ -11,7 +11,7 @@ export default async function BatchLayout({
   const { id } = await params
   return (
     <Suspense fallback={<LoadingMessage>Loading batch…</LoadingMessage>}>
-      <BatchShell batchId={id as Id<"batches">} />
+      <BatchShell key={id} batchId={id as Id<"batches">} />
     </Suspense>
   )
 }

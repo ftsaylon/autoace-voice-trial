@@ -50,16 +50,12 @@ describe("parallel runs on one batch", () => {
     { id: "prosody", status: "queued" as const, createdAt: 3 },
   ]
 
-  it("claims the running run before queued methods", () => {
+  it("still reports the currently running method", () => {
     expect(pickRunningRun(runs)?.id).toBe("lexical")
   })
 
-  it("starts the oldest queued run after the active run finishes", () => {
-    const afterLexical = runs.map((run) =>
-      run.id === "lexical" ? { ...run, status: "complete" as const } : run,
-    )
-    expect(pickRunningRun(afterLexical)).toBeUndefined()
-    expect(queuedRunsOldestFirst(afterLexical).map((run) => run.id)).toEqual([
+  it("keeps queued methods pending until they start", () => {
+    expect(queuedRunsOldestFirst(runs).map((run) => run.id)).toEqual([
       "prosody",
       "baseline",
     ])

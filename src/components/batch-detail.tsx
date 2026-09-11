@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useMutation } from "convex/react"
 import { toast } from "sonner"
 import { api } from "@convex/_generated/api"
@@ -47,7 +47,8 @@ const errorLabel = (errorJson?: string): string => {
 }
 
 export const BatchDetail = () => {
-  const { batchId, detail, queryDetail, clips, viewingRun } = useBatchShell()
+  const { batchId, detail, queryDetail, clips, viewingRun, view, focusClipId } =
+    useBatchShell()
   const { batch, runs } = detail
   const setMethod = useMutation(api.batches.setMethod)
   const start = useMutation(api.batches.start)
@@ -56,7 +57,6 @@ export const BatchDetail = () => {
   const [pending, setPending] = useState(false)
   const [runMethodsOpen, setRunMethodsOpen] = useState(false)
   const [runMethods, setRunMethods] = useState<MethodId[]>(["fusion"])
-  const [focusClipId, setFocusClipId] = useState<string | null>(null)
   const {
     isUploading,
     uploadError,
@@ -76,6 +76,14 @@ export const BatchDetail = () => {
   const ranMethods = new Set(runs.map((run) => run.method))
   const unrunMethods = METHOD_IDS.filter((methodId) => !ranMethods.has(methodId))
   const canAddMethods = unrunMethods.length > 0
+
+  useEffect(() => {
+    if (view !== "clips" || !focusClipId) {
+      return
+    }
+    const node = document.getElementById(`clip-${focusClipId}`)
+    node?.scrollIntoView({ behavior: "smooth", block: "center" })
+  }, [focusClipId, view])
 
   const handleRun = async () => {
     setPending(true)
@@ -102,7 +110,7 @@ export const BatchDetail = () => {
       if (result.reason === "queued") {
         toast.message("Queued until another batch finishes")
       } else if (result.reason === "already_running") {
-        toast.message("Queued on this batch until the current run finishes")
+        toast.message("Added to the running batch")
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not start runs")

@@ -7,6 +7,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -66,6 +67,8 @@ type BatchShellContextValue = {
   view: BatchView
   setView: (view: BatchView) => void
   setSelectedRunId: (runId: Id<"runs">) => void
+  focusClipId: string | null
+  openClipInClips: (clipId: string) => void
   canCompare: boolean
 }
 
@@ -88,20 +91,29 @@ export const BatchShell = ({ batchId }: { batchId: Id<"batches"> }) => {
     searchParams.get("view") === "compare" ? "compare" : "clips"
   const isCompare = view === "compare"
   const [selectedRunId, setSelectedRunId] = useState<Id<"runs"> | null>(null)
+  const [focusClipId, setFocusClipId] = useState<string | null>(null)
+  const [compareOpened, setCompareOpened] = useState(view === "compare")
   const [pending, setPending] = useState(false)
   const [downloading, setDownloading] = useState(false)
-  const retry = useMutation(api.batches.retry)
+  const retryRun = useMutation(api.batches.retryRun)
   const runAgain = useMutation(api.batches.runAgain)
 
   const detailQuery = useQuery(
     api.batches.get,
     isAuthenticated ? { batchId } : "skip",
   )
-  const detailRef = useRef<typeof detailQuery>(undefined)
+  const detailCacheRef = useRef<{
+    batchId: Id<"batches">
+    detail: Exclude<typeof detailQuery, undefined>
+  } | null>(null)
   if (detailQuery !== undefined) {
-    detailRef.current = detailQuery
+    detailCacheRef.current = { batchId, detail: detailQuery }
   }
-  const detail = detailQuery ?? detailRef.current
+  const cachedDetail =
+    detailCacheRef.current?.batchId === batchId
+      ? detailCacheRef.current.detail
+      : undefined
+  const detail = detailQuery ?? cachedDetail
   const isInitialLoad = detail === undefined
 
   const runIds = useMemo(
@@ -136,6 +148,12 @@ export const BatchShell = ({ batchId }: { batchId: Id<"batches"> }) => {
     return stripClipOverlays(detail.clips)
   }, [detail])
 
+  const overlayCacheRef = useRef<{
+    batchId: Id<"batches">
+    runId: string
+    clips: BaseClipRow[]
+  } | null>(null)
+
   const clips = useMemo(() => {
     if (!detail) {
       return []
@@ -143,11 +161,23 @@ export const BatchShell = ({ batchId }: { batchId: Id<"batches"> }) => {
     if (detail.runs.length <= 1 && !selectedRunId) {
       return detail.clips
     }
-    if (!allResults || !viewingRunId) {
-      return detail.clips
+    if (allResults && viewingRunId) {
+      const overlaid = overlayClipsForRun(baseClips, allResults, viewingRunId)
+      overlayCacheRef.current = {
+        batchId,
+        runId: viewingRunId,
+        clips: overlaid,
+      }
+      return overlaid
     }
-    return overlayClipsForRun(baseClips, allResults, viewingRunId)
-  }, [allResults, baseClips, detail, selectedRunId, viewingRunId])
+    if (
+      overlayCacheRef.current?.batchId === batchId &&
+      overlayCacheRef.current.runId === viewingRunId
+    ) {
+      return overlayCacheRef.current.clips
+    }
+    return baseClips
+  }, [allResults, baseClips, batchId, detail, selectedRunId, viewingRunId])
 
   const setView = useCallback(
     (next: BatchView) => {
@@ -159,6 +189,20 @@ export const BatchShell = ({ batchId }: { batchId: Id<"batches"> }) => {
     },
     [batchId, router],
   )
+
+  const openClipInClips = useCallback(
+    (clipId: string) => {
+      setFocusClipId(clipId)
+      setView("clips")
+    },
+    [setView],
+  )
+
+  useEffect(() => {
+    if (view === "compare") {
+      setCompareOpened(true)
+    }
+  }, [view])
 
   if (isInitialLoad) {
     return <LoadingMessage>Loading batch…</LoadingMessage>
@@ -188,7 +232,7 @@ export const BatchShell = ({ batchId }: { batchId: Id<"batches"> }) => {
   const runsByMethod = new Map(runs.map((run) => [run.method, run]))
   const isUploadingBatch = batch.status === "uploading"
   const canAct = batch.status === "complete" || batch.status === "failed"
-  const viewingFailed = batch.failedCount
+  const viewingFailed = viewingRun?.failedCount ?? 0
   const ranMethods = new Set(runs.map((run) => run.method))
   const unrunMethods = METHOD_IDS.filter((methodId) => !ranMethods.has(methodId))
   const canAddMethods = unrunMethods.length > 0
@@ -206,9 +250,12 @@ export const BatchShell = ({ batchId }: { batchId: Id<"batches"> }) => {
   }
 
   const handleRetryFailed = async () => {
+    if (!viewingRun) {
+      return
+    }
     setPending(true)
     try {
-      const result = await retry({ batchId })
+      const result = await retryRun({ runId: viewingRun._id })
       if (result.requeued === 0) {
         toast.message("Nothing to retry")
         return
@@ -254,6 +301,8 @@ export const BatchShell = ({ batchId }: { batchId: Id<"batches"> }) => {
     view,
     setView,
     setSelectedRunId,
+    focusClipId,
+    openClipInClips,
     canCompare,
   }
 
@@ -291,7 +340,7 @@ export const BatchShell = ({ batchId }: { batchId: Id<"batches"> }) => {
                     {downloading ? "Preparing…" : "Download ZIP"}
                   </Button>
                 ) : null}
-                {canAct && viewingFailed > 0 ? (
+                {canAct && !isCompare && viewingFailed > 0 ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -374,8 +423,8 @@ export const BatchShell = ({ batchId }: { batchId: Id<"batches"> }) => {
             {queuedRunCount > 0 ? ` · ${queuedRunCount} queued` : ""}
             {` · ${formatDuration(batch.startedAt, batch.completedAt)}`}
             {goldLabels > 0 ? ` · ${goldLabels} gold labels` : ""}
-            {batch.failedCount > 0
-              ? ` · ${batch.failedCount} failed clip${batch.failedCount === 1 ? "" : "s"}`
+            {!isCompare && viewingFailed > 0
+              ? ` · ${viewingFailed} failed clip${viewingFailed === 1 ? "" : "s"}`
               : ""}
           </p>
         </header>
@@ -383,9 +432,11 @@ export const BatchShell = ({ batchId }: { batchId: Id<"batches"> }) => {
         <div className={cn(view !== "clips" && "hidden")} aria-hidden={view !== "clips"}>
           <BatchDetail />
         </div>
-        <div className={cn(view !== "compare" && "hidden")} aria-hidden={view !== "compare"}>
-          <BatchCompareView />
-        </div>
+        {compareOpened ? (
+          <div className={cn(view !== "compare" && "hidden")} aria-hidden={view !== "compare"}>
+            <BatchCompareView />
+          </div>
+        ) : null}
       </div>
     </BatchShellContext.Provider>
   )

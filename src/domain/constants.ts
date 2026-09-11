@@ -39,6 +39,7 @@ export const MAX_CLIP_COUNT = 50;
 export const MAX_PARSE_ISSUES = 40;
 export const MAX_PARSE_ISSUE_LENGTH = 500;
 export const MAX_RUNS_PER_BATCH = 50;
+export const MAX_BATCHES_PER_USER = 8192;
 
 export const SUPPORTED_AUDIO_EXTENSIONS = [
   ".wav",

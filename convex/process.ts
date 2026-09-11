@@ -6,6 +6,7 @@ import { CLAIM_STALE_MS, MAX_CLIP_COUNT } from "../src/domain/constants"
 import { hasPendingRuns } from "../src/application/run-policy"
 import { MAX_RUNNING_BATCHES } from "./lib/constants"
 import { formatStoredAnalyzeError } from "../src/domain/errors"
+import { methodValidator } from "./schema"
 import {
   activateRun,
   completeRunIfIdle,
@@ -23,7 +24,7 @@ const claimedClipValidator = v.object({
   name: v.string(),
   storageId: v.id("_storage"),
   userId: v.id("users"),
-  method: v.string(),
+  method: methodValidator,
   model: v.string(),
 })
 
@@ -35,7 +36,7 @@ type ClaimedClip = {
   name: string
   storageId: Doc<"clips">["storageId"] & string
   userId: Doc<"users">["_id"]
-  method: string
+  method: Doc<"runs">["method"]
   model: string
 }
 
@@ -68,6 +69,18 @@ const claimFromRun = async (
   }
   const clip = await ctx.db.get(next.clipId)
   if (!clip?.storageId) {
+    await ctx.db.patch(next._id, {
+      state: "failed",
+      stage: "Failed",
+      predictionJson: undefined,
+      errorJson: JSON.stringify({
+        tag: "decode_failed",
+        name: clip?.name ?? "clip",
+        cause: "Audio is missing from storage",
+      }),
+      finishedAt: now,
+    })
+    await recountRun(ctx, run._id)
     return null
   }
   await ctx.db.patch(next._id, {

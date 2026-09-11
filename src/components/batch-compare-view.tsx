@@ -1,24 +1,12 @@
 "use client"
 
-import { useState } from "react"
 import { BatchCompare } from "@/components/batch-compare"
 import { useBatchShell } from "@/components/batch-shell"
 import { Button } from "@/components/ui/button"
 
 export const BatchCompareView = () => {
-  const { batchId, detail, baseClips, allResults, canCompare, setView } =
+  const { batchId, detail, baseClips, allResults, canCompare, setView, openClipInClips } =
     useBatchShell()
-  const [focusClipId, setFocusClipId] = useState<string | null>(null)
-
-  const handleOpenInClips = (clipId: string) => {
-    setView("clips")
-    requestAnimationFrame(() => {
-      document.getElementById(`clip-${clipId}`)?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      })
-    })
-  }
 
   if (!canCompare) {
     return (
@@ -47,23 +35,8 @@ export const BatchCompareView = () => {
         clips={baseClips}
         runs={detail.runs}
         results={allResults}
-        onOpenClip={(clipId) => {
-          setFocusClipId(clipId)
-        }}
+        onOpenClip={openClipInClips}
       />
-      {focusClipId ? (
-        <p className="text-xs text-muted-foreground">
-          Open clip details in{" "}
-          <button
-            type="button"
-            className="underline hover:text-foreground"
-            onClick={() => handleOpenInClips(focusClipId)}
-          >
-            Clips view
-          </button>
-          .
-        </p>
-      ) : null}
     </div>
   )
 }

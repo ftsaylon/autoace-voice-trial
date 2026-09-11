@@ -51,6 +51,9 @@ const launchBatch = async (
     throw new Error("No valid clips to process")
   }
   if (batch.status === "running") {
+    await ctx.scheduler.runAfter(0, internal.processActions.processNext, {
+      batchId,
+    })
     return { started: false as const, reason: "already_running" as const }
   }
   const clips = await listBatchClips(ctx, batchId)

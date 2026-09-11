@@ -139,4 +139,8 @@ export default defineSchema({
     userId: v.id("users"),
     defaultMethod: methodValidator,
   }).index("by_user", ["userId"]),
+  batchNameCounters: defineTable({
+    userId: v.id("users"),
+    next: v.number(),
+  }).index("by_user", ["userId"]),
 })

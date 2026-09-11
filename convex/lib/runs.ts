@@ -188,19 +188,16 @@ export const syncBatchRunMeta = async (
   }
   const runs = await listRuns(ctx, batchId)
   const methodIds = uniqueMethodIds(runs.map((run) => run.method))
-  const active =
-    runs.find((run) => run.status === "running") ??
-    runs.find((run) => run.status === "queued") ??
-    runs[runs.length - 1]
+  const viewing = pickViewingRun(runs)
   await ctx.db.patch(batchId, {
     runCount: runs.length,
     methodIds: methodIds.length > 0 ? methodIds : batch.methodIds ?? [batch.method],
-    ...(active
+    ...(viewing
       ? {
-          method: active.method,
-          model: active.model,
-          succeededCount: active.succeededCount,
-          failedCount: active.failedCount,
+          method: viewing.method,
+          model: viewing.model,
+          succeededCount: viewing.succeededCount,
+          failedCount: viewing.failedCount,
         }
       : {}),
   })
@@ -221,6 +218,10 @@ export const ensureRuns = async (
   if (batch.status === "draft" || batch.status === "uploading") {
     return []
   }
+  await ctx.db.patch(batch._id, {
+    runCount: 1,
+    methodIds: [batch.method],
+  })
   const clips = await listBatchClips(ctx, batch._id)
   const now = Date.now()
   const runId = await ctx.db.insert("runs", {
@@ -249,10 +250,6 @@ export const ensureRuns = async (
       finishedAt: clip.finishedAt,
     })
   }
-  await ctx.db.patch(batch._id, {
-    runCount: 1,
-    methodIds: [batch.method],
-  })
   await ctx.db.insert("logs", {
     userId: batch.userId,
     batchId: batch._id,
@@ -287,6 +284,13 @@ export const insertRunsForMethods = async (
   if (existing.length + novel.length > MAX_RUNS_PER_BATCH) {
     throw new Error(`This batch already has ${MAX_RUNS_PER_BATCH} runs`)
   }
+  await ctx.db.patch(batch._id, {
+    runCount: existing.length + novel.length,
+    methodIds: uniqueMethodIds([
+      ...existing.map((run) => run.method),
+      ...novel,
+    ]),
+  })
   const now = Date.now()
   const ids: Id<"runs">[] = []
   for (const method of novel) {
@@ -334,7 +338,7 @@ export const recountRun = async (
   const succeededCount = results.filter((row) => row.state === "succeeded").length
   const failedCount = results.filter((row) => row.state === "failed").length
   await ctx.db.patch(runId, { succeededCount, failedCount })
-  await ctx.db.patch(run.batchId, { succeededCount, failedCount })
+  await syncBatchRunMeta(ctx, run.batchId)
   return await ctx.db.get(runId)
 }
 
@@ -407,12 +411,7 @@ export const activateRun = async (
     status: "running",
     startedAt: run.startedAt ?? now,
   })
-  await ctx.db.patch(batch._id, {
-    method: run.method,
-    model: run.model,
-    succeededCount: run.succeededCount,
-    failedCount: run.failedCount,
-  })
+  await syncBatchRunMeta(ctx, batch._id)
   await ctx.db.insert("logs", {
     userId: batch.userId,
     batchId: batch._id,
