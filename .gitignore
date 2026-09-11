@@ -59,3 +59,6 @@ next-env.d.ts
 docs/assessment.md
 
 .env.convex-auth
+
+# Interview coaching — do not publish
+submission/INTERNAL_INTERVIEW_GUIDE.md

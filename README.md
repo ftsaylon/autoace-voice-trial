@@ -6,6 +6,8 @@ Audio leaves AutoAce infrastructure and is stored in **Convex** and sent to **Go
 
 You do not need Convex MCP for any of the paths below.
 
+Public repository: [https://github.com/ftsaylon/autoace-voice-trial](https://github.com/ftsaylon/autoace-voice-trial)
+
 ## 1. Evaluate (no install)
 
 Use the live site. Do not install anything.

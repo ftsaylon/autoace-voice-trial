@@ -1,0 +1,4 @@
+name,result_json,error
+call_001.ogg,"{""emotional_tone"":""frustrated"",""emotional_intensity"":""medium"",""background_noise_present"":true,""background_noise_type"":""road noise"",""background_noise_severity"":""low"",""audio_quality"":""clear"",""speaker_overlap_present"":false,""long_silence_present"":false,""confidence"":1.0}",""
+call_002.ogg,"{""emotional_tone"":""frustrated"",""emotional_intensity"":""medium"",""background_noise_present"":true,""background_noise_type"":""TV"",""background_noise_severity"":""medium"",""audio_quality"":""clear"",""speaker_overlap_present"":false,""long_silence_present"":false,""confidence"":1.0}",""
+call_003.ogg,"{""emotional_tone"":""neutral"",""emotional_intensity"":""medium"",""background_noise_present"":false,""background_noise_type"":"""",""background_noise_severity"":""none"",""audio_quality"":""clear"",""speaker_overlap_present"":false,""long_silence_present"":false,""confidence"":1.0}",""
