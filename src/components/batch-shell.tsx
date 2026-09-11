@@ -24,7 +24,7 @@ import {
   MethodBadge,
   MethodRunBadge,
 } from "@/components/batch-badges"
-import { formatBatchLabel } from "@/lib/batch-label"
+import { BatchLabelText } from "@/components/batch-label-text"
 import { labeledCount } from "@/lib/clip-view"
 import { formatDuration, relativeTime } from "@/lib/format-time"
 import {
@@ -226,7 +226,6 @@ export const BatchShell = ({ batchId }: { batchId: Id<"batches"> }) => {
   }
 
   const { batch, runs } = detail
-  const batchLabel = formatBatchLabel(batch)
   const canCompare = canCompareRuns(runs)
   const methodIds = batch.methodIds ?? [batch.method]
   const runsByMethod = new Map(runs.map((run) => [run.method, run]))
@@ -311,10 +310,14 @@ export const BatchShell = ({ batchId }: { batchId: Id<"batches"> }) => {
       <div className="space-y-8">
         <header className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex min-w-0 items-center gap-3">
-              <StatusIcon status={batch.status} />
-              <h1 className="font-mono text-2xl font-semibold tabular-nums tracking-tight">
-                {batchLabel}
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <StatusIcon status={batch.status} className="shrink-0" />
+              <h1 className="min-w-0 flex-1 overflow-hidden text-2xl font-semibold">
+                <BatchLabelText
+                  batch={batch}
+                  codeClassName="font-semibold"
+                  datasetClassName="font-semibold"
+                />
               </h1>
             </div>
             {canAct ||

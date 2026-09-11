@@ -4,6 +4,7 @@ import { requireUserId } from "./lib/auth"
 import { ownedOrNull } from "./lib/access"
 import schema from "./schema"
 import { boundParseIssues } from "./lib/runs"
+import { allocateUniqueDatasetName } from "./lib/datasetNames"
 import { MAX_CLIP_COUNT } from "../src/domain/constants"
 import type { Id } from "./_generated/dataModel"
 
@@ -48,7 +49,7 @@ export const get = query({
 
 export const create = mutation({
   args: {
-    name: v.string(),
+    preferredName: v.optional(v.string()),
     parseIssues: v.array(v.string()),
     clips: v.array(
       v.object({
@@ -67,10 +68,13 @@ export const create = mutation({
     if (args.clips.length > MAX_CLIP_COUNT) {
       throw new Error(`Dataset has ${args.clips.length} clips; the cap is ${MAX_CLIP_COUNT}`)
     }
+    const fallbackName = `${args.clips.length} clip${args.clips.length === 1 ? "" : "s"}`
+    const preferred = args.preferredName?.trim() || fallbackName
+    const name = await allocateUniqueDatasetName(ctx, userId, preferred)
     const now = Date.now()
     const datasetId = await ctx.db.insert("datasets", {
       userId,
-      name: args.name,
+      name,
       clipCount: args.clips.length,
       parseIssues: boundParseIssues(args.parseIssues),
       createdAt: now,

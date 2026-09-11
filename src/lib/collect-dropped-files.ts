@@ -44,18 +44,27 @@ async function collectEntryFiles(entry: FileSystemEntry): Promise<File[]> {
   return nested.flat();
 }
 
+export type CollectedDrop = {
+  files: File[]
+  rootName?: string
+}
+
 export async function collectDroppedFiles(
   dataTransfer: DataTransfer,
-): Promise<File[]> {
+): Promise<CollectedDrop> {
   const items = dataTransfer.items;
   if (items && items.length > 0) {
     const files: File[] = [];
+    let rootName: string | undefined;
     for (const item of Array.from(items)) {
       if (item.kind !== "file") {
         continue;
       }
       const entry = item.webkitGetAsEntry?.() ?? null;
       if (entry) {
+        if (entry.isDirectory && rootName === undefined) {
+          rootName = entry.name;
+        }
         files.push(...(await collectEntryFiles(entry)));
         continue;
       }
@@ -65,10 +74,10 @@ export async function collectDroppedFiles(
       }
     }
     if (files.length > 0) {
-      return files;
+      return { files, rootName };
     }
   }
-  return Array.from(dataTransfer.files);
+  return { files: Array.from(dataTransfer.files) };
 }
 
 export function buildUploadFormData(files: File[]): FormData | { error: string } {

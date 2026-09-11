@@ -15,7 +15,8 @@ import { LoadingMessage } from "@/components/waveform-spinner"
 import { MethodBadge } from "@/components/batch-badges"
 import { Button } from "@/components/ui/button"
 import { downloadBatchZip } from "@/lib/download-batch-zip"
-import { formatBatchLabel, isBatchCode } from "@/lib/batch-label"
+import { BatchLabelText } from "@/components/batch-label-text"
+import { isBatchCode, joinBatchMeta } from "@/lib/batch-label"
 import { formatDuration, relativeTime } from "@/lib/format-time"
 
 const FILTERS = ["all", "running", "queued", "complete", "failed", "draft"] as const
@@ -143,17 +144,20 @@ export const BatchList = ({
               className="flex items-center gap-4 border-b border-border px-5 py-4 last:border-b-0"
             >
               <StatusIcon status={batch.status} />
-              <Link href={`/batches/${batch._id}`} className="min-w-0 flex-1">
-                <p className="truncate font-mono text-sm font-medium tabular-nums tracking-tight">
-                  {formatBatchLabel(batch)}
-                </p>
+              <Link href={`/batches/${batch._id}`} className="block min-w-0 flex-1 overflow-hidden">
+                <BatchLabelText
+                  batch={batch}
+                  className="text-sm font-medium"
+                />
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {batch.succeededCount + batch.failedCount}/{batch.clipCount} clips
-                  {(batch.runCount ?? 0) > 1 ? ` · ${batch.runCount} runs` : ""}
-                  {batch.startedAt
-                    ? ` · ${formatDuration(batch.startedAt, batch.completedAt)}`
-                    : ""}
-                  {` · ${relativeTime(batch.createdAt)}`}
+                  {joinBatchMeta(
+                    `${batch.succeededCount + batch.failedCount}/${batch.clipCount} clips`,
+                    (batch.runCount ?? 0) > 1 ? `${batch.runCount} runs` : null,
+                    batch.startedAt
+                      ? formatDuration(batch.startedAt, batch.completedAt)
+                      : null,
+                    relativeTime(batch.createdAt),
+                  )}
                 </p>
               </Link>
               <div className="hidden flex-wrap justify-end gap-1 sm:flex">

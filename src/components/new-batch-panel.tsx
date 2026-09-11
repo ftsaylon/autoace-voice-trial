@@ -15,22 +15,26 @@ import {
   mergeSelectedBatchFiles,
   parseDroppedFiles,
   prepareClipsForDraft,
+  toSelectedBatchFiles,
   type SelectedBatchFile,
 } from "@/lib/prepare-batch"
+import { deriveUploadSourceName } from "@/lib/upload-source-name"
 import { MethodCards } from "@/components/method-cards"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { DEFAULT_METHOD, type MethodId } from "@/application/methods"
+import { DEFAULT_METHOD, METHOD_IDS, type MethodId } from "@/application/methods"
 import { relativeTime } from "@/lib/format-time"
 import { cn } from "@/lib/utils"
 
 export type NewBatchPanelProps = {
   initialFiles?: File[] | null
+  initialRootName?: string | null
   onStarted?: (batchId: string) => void
 }
 
 export const NewBatchPanel = ({
   initialFiles = null,
+  initialRootName = null,
   onStarted,
 }: NewBatchPanelProps) => {
   const { isAuthenticated } = useConvexAuth()
@@ -45,6 +49,7 @@ export const NewBatchPanel = ({
   )
   const [dragging, setDragging] = useState(false)
   const [selected, setSelected] = useState<SelectedBatchFile[]>([])
+  const [uploadRootName, setUploadRootName] = useState<string | null>(null)
   const [methods, setMethods] = useState<MethodId[]>([DEFAULT_METHOD])
   const [errors, setErrors] = useState<string[]>([])
   const [starting, setStarting] = useState(false)
@@ -61,21 +66,37 @@ export const NewBatchPanel = ({
 
   const clearDataset = () => {
     setSelectedDatasetId(null)
+    setUploadRootName(null)
   }
 
-  const handleAcceptFiles = (files: File[]) => {
+  const handleAcceptFiles = (
+    files: File[],
+    options?: { replace?: boolean; rootName?: string | null },
+  ) => {
     if (starting) {
       return
     }
     setSelectedDatasetId(null)
+    const replace = options?.replace ?? false
+    if (replace) {
+      const nextSelected = toSelectedBatchFiles(files)
+      if (nextSelected.length === 0) {
+        setErrors(["No files were selected"])
+        return
+      }
+      setErrors([])
+      setSelected(nextSelected)
+      setUploadRootName(options?.rootName ?? null)
+      return
+    }
     setSelected((current) => {
-      const next = mergeSelectedBatchFiles(current, files)
-      if (next.length === 0) {
+      const nextSelected = mergeSelectedBatchFiles(current, files)
+      if (nextSelected.length === 0) {
         setErrors(["No files were selected"])
         return current
       }
       setErrors([])
-      return next
+      return nextSelected
     })
   }
 
@@ -84,20 +105,42 @@ export const NewBatchPanel = ({
       return
     }
     initialHandled.current = true
-    handleAcceptFiles(initialFiles)
-  }, [initialFiles])
+    handleAcceptFiles(initialFiles, {
+      replace: true,
+      rootName: initialRootName,
+    })
+  }, [initialFiles, initialRootName])
 
   const handleDrop = async (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault()
     setDragging(false)
-    const files = await collectDroppedFiles(event.dataTransfer)
-    handleAcceptFiles(files)
+    const { files, rootName } = await collectDroppedFiles(event.dataTransfer)
+    if (files.length === 0) {
+      return
+    }
+    const isSingleZip =
+      files.length === 1 && files[0]?.name.toLowerCase().endsWith(".zip")
+    const isFolderUpload = Boolean(rootName) || files.some((file) => file.webkitRelativePath)
+    handleAcceptFiles(files, {
+      replace: isSingleZip || isFolderUpload,
+      rootName: rootName ?? null,
+    })
   }
 
   const handleFileInput = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.currentTarget.files ?? [])
     if (files.length > 0) {
-      handleAcceptFiles(files)
+      const isSingleZip =
+        files.length === 1 && files[0]?.name.toLowerCase().endsWith(".zip")
+      handleAcceptFiles(files, { replace: isSingleZip })
+    }
+    event.currentTarget.value = ""
+  }
+
+  const handleFolderInput = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.currentTarget.files ?? [])
+    if (files.length > 0) {
+      handleAcceptFiles(files, { replace: true })
     }
     event.currentTarget.value = ""
   }
@@ -122,6 +165,7 @@ export const NewBatchPanel = ({
     }
     setSelectedDatasetId(datasetId)
     setSelected([])
+    setUploadRootName(null)
     setErrors([])
   }
 
@@ -204,8 +248,11 @@ export const NewBatchPanel = ({
         return
       }
 
+      const uploadFiles = selected.map((item) => item.file)
+      const preferredName = deriveUploadSourceName(uploadFiles, uploadRootName ?? undefined)
+
       const datasetId = await createDataset({
-        name: `${prepared.length} clip${prepared.length === 1 ? "" : "s"}`,
+        preferredName: preferredName ?? undefined,
         parseIssues: parsed.parseIssues,
         clips: prepared.map((clip) => ({
           name: clip.name,
@@ -340,43 +387,75 @@ export const NewBatchPanel = ({
                   </li>
                 ))}
               </ul>
-              <label className="mt-6 inline-flex">
-                <input
-                  type="file"
-                  className="sr-only"
-                  multiple
-                  accept=".zip,.csv,.wav,.mp3,.ogg,.m4a,.flac,application/zip"
-                  disabled={starting}
-                  aria-label="Add more batch files"
-                  onChange={handleFileInput}
-                />
-                <span className="inline-flex h-9 cursor-pointer items-center rounded-lg border border-border bg-background px-3 text-sm font-medium">
-                  Add files
-                </span>
-              </label>
+              <div className="mt-6 flex flex-wrap gap-2">
+                <label className="inline-flex">
+                  <input
+                    type="file"
+                    className="sr-only"
+                    multiple
+                    accept=".zip,.csv,.wav,.mp3,.ogg,.m4a,.flac,application/zip"
+                    disabled={starting}
+                    aria-label="Add more batch files"
+                    onChange={handleFileInput}
+                  />
+                  <span className="inline-flex h-9 cursor-pointer items-center rounded-lg border border-border bg-background px-3 text-sm font-medium">
+                    Add files
+                  </span>
+                </label>
+                <label className="inline-flex">
+                  <input
+                    type="file"
+                    className="sr-only"
+                    multiple
+                    disabled={starting}
+                    aria-label="Replace selection with a folder"
+                    onChange={handleFolderInput}
+                    {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+                  />
+                  <span className="inline-flex h-9 cursor-pointer items-center rounded-lg border border-border bg-background px-3 text-sm font-medium">
+                    Choose folder
+                  </span>
+                </label>
+              </div>
             </div>
           ) : (
             <div className="p-8 sm:p-10">
-              <p className="text-sm font-medium">Add audio files or a ZIP</p>
+              <p className="text-sm font-medium">Add a folder, ZIP, or files</p>
               <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">
                 Include any supported audio (.wav, .mp3, .ogg, .m4a, .flac) and{" "}
                 <code>labels.csv</code>. The CSV <code>name</code> column must match
-                those filenames.
+                those filenames. You can drop a folder or choose one directly.
               </p>
-              <label className="mt-8 inline-flex">
-                <input
-                  type="file"
-                  className="sr-only"
-                  multiple
-                  accept=".zip,.csv,.wav,.mp3,.ogg,.m4a,.flac,application/zip"
-                  disabled={starting}
-                  aria-label="Choose batch files"
-                  onChange={handleFileInput}
-                />
-                <span className="inline-flex h-10 cursor-pointer items-center rounded-lg border border-border bg-background px-4 text-sm font-medium">
-                  Choose files
-                </span>
-              </label>
+              <div className="mt-8 flex flex-wrap gap-2">
+                <label className="inline-flex">
+                  <input
+                    type="file"
+                    className="sr-only"
+                    multiple
+                    accept=".zip,.csv,.wav,.mp3,.ogg,.m4a,.flac,application/zip"
+                    disabled={starting}
+                    aria-label="Choose batch files"
+                    onChange={handleFileInput}
+                  />
+                  <span className="inline-flex h-10 cursor-pointer items-center rounded-lg border border-border bg-background px-4 text-sm font-medium">
+                    Choose files
+                  </span>
+                </label>
+                <label className="inline-flex">
+                  <input
+                    type="file"
+                    className="sr-only"
+                    multiple
+                    disabled={starting}
+                    aria-label="Choose a folder with labels.csv and audio files"
+                    onChange={handleFolderInput}
+                    {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+                  />
+                  <span className="inline-flex h-10 cursor-pointer items-center rounded-lg border border-border bg-background px-4 text-sm font-medium">
+                    Choose folder
+                  </span>
+                </label>
+              </div>
             </div>
           )}
         </div>

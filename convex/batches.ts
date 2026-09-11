@@ -24,7 +24,7 @@ import {
 } from "./lib/runs"
 import { allocateBatchName } from "./lib/batchNames"
 import { touchUpdated } from "./datasets"
-import type { MutationCtx } from "./_generated/server"
+import type { MutationCtx, QueryCtx } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
 
 const launchResultValidator = v.union(
@@ -39,6 +39,32 @@ const batchDoc = schema.doc("batches")
 const clipDoc = schema.doc("clips")
 const runDoc = schema.doc("runs")
 const clipResultDoc = schema.doc("clipResults")
+
+const batchWithDatasetName = v.object({
+  ...batchDoc.fields,
+  datasetName: v.union(v.string(), v.null()),
+})
+
+const resolveDatasetName = async (
+  ctx: QueryCtx,
+  datasetId: Id<"datasets"> | undefined,
+): Promise<string | null> => {
+  if (!datasetId) {
+    return null
+  }
+  const dataset = await ctx.db.get(datasetId)
+  return dataset?.name ?? null
+}
+
+const enrichBatchWithDatasetName = async (
+  ctx: QueryCtx,
+  batch: Doc<"batches">,
+) => {
+  return {
+    ...batch,
+    datasetName: await resolveDatasetName(ctx, batch.datasetId),
+  }
+}
 
 const launchBatch = async (
   ctx: MutationCtx,
@@ -398,23 +424,25 @@ export const list = query({
       ),
     ),
   },
-  returns: v.array(batchDoc),
+  returns: v.array(batchWithDatasetName),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
-    if (args.status) {
-      return await ctx.db
-        .query("batches")
-        .withIndex("by_userId_and_status_and_createdAt", (q) =>
-          q.eq("userId", userId).eq("status", args.status!),
-        )
-        .order("desc")
-        .take(100)
-    }
-    return await ctx.db
-      .query("batches")
-      .withIndex("by_user_and_created", (q) => q.eq("userId", userId))
-      .order("desc")
-      .take(100)
+    const batches = args.status
+      ? await ctx.db
+          .query("batches")
+          .withIndex("by_userId_and_status_and_createdAt", (q) =>
+            q.eq("userId", userId).eq("status", args.status!),
+          )
+          .order("desc")
+          .take(100)
+      : await ctx.db
+          .query("batches")
+          .withIndex("by_user_and_created", (q) => q.eq("userId", userId))
+          .order("desc")
+          .take(100)
+    return await Promise.all(
+      batches.map((batch) => enrichBatchWithDatasetName(ctx, batch)),
+    )
   },
 })
 
@@ -425,7 +453,7 @@ export const get = query({
   },
   returns: v.union(
     v.object({
-      batch: batchDoc,
+      batch: batchWithDatasetName,
       clips: v.array(clipDoc),
       runs: v.array(runDoc),
       viewingRun: v.union(runDoc, v.null()),
@@ -448,7 +476,7 @@ export const get = query({
       viewingResults.map((row) => [row.clipId, row] as const),
     )
     return {
-      batch,
+      batch: await enrichBatchWithDatasetName(ctx, batch),
       clips: clips.map((clip) => overlayClip(clip, resultByClip.get(clip._id))),
       runs,
       viewingRun,

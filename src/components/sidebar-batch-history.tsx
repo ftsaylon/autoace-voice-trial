@@ -10,6 +10,7 @@ import { api } from "@convex/_generated/api"
 import { BatchMethodIcons } from "@/components/batch-method-icons"
 import { StatusIcon } from "@/components/status-icon"
 import { Spinner } from "@/components/waveform-spinner"
+import { BatchLabelText } from "@/components/batch-label-text"
 import { formatBatchLabel, isBatchCode } from "@/lib/batch-label"
 import { relativeTime } from "@/lib/format-time"
 import { cn } from "@/lib/utils"
@@ -125,7 +126,7 @@ export const SidebarBatchHistory = () => {
             recent.map((batch) => {
               const href = `/batches/${batch._id}`
               const active = pathname === href
-              const label = formatBatchLabel(batch)
+              const label = formatBatchLabel(batch, { variant: "compact" })
               const methods = batchMethods(batch)
               return (
                 <SidebarMenuItem key={batch._id}>
@@ -138,9 +139,11 @@ export const SidebarBatchHistory = () => {
                     <Link href={href} prefetch={true} className="flex w-full min-w-0 flex-col gap-2">
                       <span className="flex w-full min-w-0 items-center gap-2">
                         <StatusIcon status={batch.status} className="shrink-0" />
-                        <span className="min-w-0 flex-1 truncate font-mono text-sm tabular-nums tracking-tight">
-                          {label}
-                        </span>
+                        <BatchLabelText
+                          batch={batch}
+                          variant="compact"
+                          className="min-w-0 flex-1 text-sm"
+                        />
                         <span className="ml-auto shrink-0 text-xs text-sidebar-foreground/60">
                           {relativeTime(batch.createdAt)}
                         </span>

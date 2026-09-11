@@ -9,14 +9,16 @@ export const BatchesPageClient = () => {
   const router = useRouter()
   const [dragging, setDragging] = useState(false)
   const [initialFiles, setInitialFiles] = useState<File[] | null>(null)
+  const [initialRootName, setInitialRootName] = useState<string | null>(null)
   const [panelKey, setPanelKey] = useState(0)
 
   const handlePageDrop = async (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault()
     setDragging(false)
-    const files = await collectDroppedFiles(event.dataTransfer)
+    const { files, rootName } = await collectDroppedFiles(event.dataTransfer)
     if (files.length > 0) {
       setInitialFiles(files)
+      setInitialRootName(rootName ?? null)
       setPanelKey((value) => value + 1)
     }
   }
@@ -24,6 +26,7 @@ export const BatchesPageClient = () => {
   const handleStarted = useCallback(
     (batchId: string) => {
       setInitialFiles(null)
+      setInitialRootName(null)
       router.push(`/batches/${batchId}`)
     },
     [router],
@@ -64,6 +67,7 @@ export const BatchesPageClient = () => {
       <NewBatchPanel
         key={panelKey}
         initialFiles={initialFiles}
+        initialRootName={initialRootName}
         onStarted={handleStarted}
       />
     </div>
