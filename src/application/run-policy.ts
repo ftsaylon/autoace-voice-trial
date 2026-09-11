@@ -31,6 +31,28 @@ export const queuedRunsOldestFirst = <T extends RunQueueItem>(runs: T[]): T[] =>
 export const hasPendingRuns = <T extends RunQueueItem>(runs: T[]): boolean =>
   runs.some((run) => run.status === "queued" || run.status === "running")
 
+export const canCompareRuns = <T extends RunQueueItem>(runs: T[]): boolean =>
+  runs.length >= 2 &&
+  runs.every((run) => run.status === "complete" || run.status === "failed")
+
+export const pickViewingRunId = <T extends RunQueueItem & { _id: string }>(
+  runs: T[],
+  runId?: string | null,
+): string | null => {
+  if (runs.length === 0) {
+    return null
+  }
+  if (runId) {
+    return runs.find((run) => run._id === runId)?._id ?? runs[runs.length - 1]?._id ?? null
+  }
+  return (
+    runs.find((run) => run.status === "running")?._id ??
+    runs.find((run) => run.status === "queued")?._id ??
+    runs[runs.length - 1]?._id ??
+    null
+  )
+}
+
 export const failedResultsForRun = <T extends { runId: string; state: string }>(
   results: T[],
   runId: string,

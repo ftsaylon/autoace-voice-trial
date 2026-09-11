@@ -10,9 +10,11 @@
 
 import type * as auth from "../auth.js";
 import type * as batches from "../batches.js";
+import type * as datasets from "../datasets.js";
 import type * as http from "../http.js";
 import type * as lib_access from "../lib/access.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_batchNames from "../lib/batchNames.js";
 import type * as lib_constants from "../lib/constants.js";
 import type * as lib_runs from "../lib/runs.js";
 import type * as logs from "../logs.js";
@@ -29,9 +31,11 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   batches: typeof batches;
+  datasets: typeof datasets;
   http: typeof http;
   "lib/access": typeof lib_access;
   "lib/auth": typeof lib_auth;
+  "lib/batchNames": typeof lib_batchNames;
   "lib/constants": typeof lib_constants;
   "lib/runs": typeof lib_runs;
   logs: typeof logs;

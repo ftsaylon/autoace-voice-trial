@@ -9,7 +9,7 @@ flowchart LR
   Conv[Convex DB and file storage]
   Sched[Scheduler per batch]
   Act[Node action ProcessClip]
-  Gem[Gemini 3.5 Flash-Lite]
+  Gem[Gemini 3.6 Flash]
   Ff[ffmpeg acoustics]
 
   UI --> Auth
@@ -40,11 +40,11 @@ Tables are flat and indexed:
 - `runs` — one method attempt on a batch. Append-only. Status `queued` | `running` | `complete` | `failed`
 - `clipResults` — per-clip prediction/error for a run
 - `clips` — `batchId`, original `name`, `storageId`, gold JSON, upload state. Predictions live on `clipResults`
-- `logs` — append-only diagnostics keyed by user, batch, and optional `runId`
+- `logs` — append-only diagnostics keyed by user, batch, and optional `runId`. The UI shows them on the batch page for the selected method run, not as an app-wide log stream.
 - `userSettings` — default method
 - Convex Auth tables — users and sessions. No parallel profile table.
 
-Indexes: `by_user`, `by_user_and_created`, `by_batch`, `by_batch_and_created`, `by_status`, `by_run`, `by_run_and_state`, `by_clip`.
+Indexes: `by_user`, `by_user_and_created`, `by_batch`, `by_batch_and_created`, `by_status`, `by_run`, `by_run_and_created`, `by_run_and_state`, `by_clip`.
 
 Files go through `generateUploadUrl` into Convex storage. ZIP unzip happens in the browser with JSZip. There is no extra size cap in storage; the parser still enforces clip/batch caps.
 

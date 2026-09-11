@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  canCompareRuns,
   decideBatchLaunch,
   failedResultsForRun,
   hasPendingRuns,
@@ -24,7 +25,24 @@ describe("run policy", () => {
   })
 })
 
-describe("sequential runs on one batch", () => {
+describe("canCompareRuns", () => {
+  it("requires at least two finished runs", () => {
+    expect(
+      canCompareRuns([
+        { status: "complete", createdAt: 1 },
+        { status: "running", createdAt: 2 },
+      ]),
+    ).toBe(false)
+    expect(
+      canCompareRuns([
+        { status: "complete", createdAt: 1 },
+        { status: "complete", createdAt: 2 },
+      ]),
+    ).toBe(true)
+  })
+})
+
+describe("parallel runs on one batch", () => {
   const runs = [
     { id: "fusion", status: "complete" as const, createdAt: 1 },
     { id: "lexical", status: "running" as const, createdAt: 2 },

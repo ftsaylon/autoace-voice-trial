@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   boundParseIssues,
+  filterNovelMethods,
   overlayClip,
   pickViewingRun,
   requireMethodIds,
@@ -29,6 +30,21 @@ describe("requireMethodIds", () => {
       "fusion",
       "lexical",
     ])
+  })
+})
+
+describe("filterNovelMethods", () => {
+  it("drops methods that already have a run on the batch", () => {
+    const existing = [
+      { method: "fusion" },
+      { method: "lexical" },
+    ] as unknown as Doc<"runs">[]
+    expect(filterNovelMethods(existing, ["fusion", "baseline"])).toEqual(["baseline"])
+  })
+
+  it("returns empty when every method already ran", () => {
+    const existing = [{ method: "fusion" }] as unknown as Doc<"runs">[]
+    expect(filterNovelMethods(existing, ["fusion"])).toEqual([])
   })
 })
 
@@ -61,12 +77,30 @@ describe("runHasFullResultSet", () => {
 
 describe("pickViewingRun", () => {
   const runs = [
-    { _id: "r1", createdAt: 1 },
-    { _id: "r2", createdAt: 2 },
+    { _id: "r1", createdAt: 1, status: "complete" },
+    { _id: "r2", createdAt: 2, status: "running" },
+    { _id: "r3", createdAt: 3, status: "queued" },
   ] as unknown as Doc<"runs">[]
 
-  it("defaults to the latest run", () => {
+  it("prefers the running run by default", () => {
     expect(pickViewingRun(runs)?._id).toBe("r2")
+  })
+
+  it("falls back to the first queued run when nothing is running", () => {
+    const idle = [
+      { _id: "r1", createdAt: 1, status: "complete" },
+      { _id: "r2", createdAt: 2, status: "queued" },
+      { _id: "r3", createdAt: 3, status: "queued" },
+    ] as unknown as Doc<"runs">[]
+    expect(pickViewingRun(idle)?._id).toBe("r2")
+  })
+
+  it("falls back to the latest run when every run finished", () => {
+    const finished = [
+      { _id: "r1", createdAt: 1, status: "complete" },
+      { _id: "r2", createdAt: 2, status: "complete" },
+    ] as unknown as Doc<"runs">[]
+    expect(pickViewingRun(finished)?._id).toBe("r2")
   })
 
   it("honors an explicit run id when it exists", () => {

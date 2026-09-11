@@ -136,7 +136,12 @@ export const pickViewingRun = (
   if (runId) {
     return runs.find((run) => run._id === runId) ?? runs[runs.length - 1] ?? null
   }
-  return runs[runs.length - 1] ?? null
+  return (
+    runs.find((run) => run.status === "running") ??
+    runs.find((run) => run.status === "queued") ??
+    runs[runs.length - 1] ??
+    null
+  )
 }
 
 const clipStateForBackfill = (
@@ -259,20 +264,32 @@ export const ensureRuns = async (
   return await listRuns(ctx, batch._id)
 }
 
+export const filterNovelMethods = (
+  existing: Doc<"runs">[],
+  methods: MethodId[],
+): MethodId[] => {
+  const usedMethods = new Set(existing.map((run) => run.method))
+  const unique = requireMethodIds(methods)
+  return unique.filter((method) => !usedMethods.has(method))
+}
+
 export const insertRunsForMethods = async (
   ctx: MutationCtx,
   batch: Doc<"batches">,
   methods: MethodId[],
 ): Promise<Id<"runs">[]> => {
-  const unique = requireMethodIds(methods)
   const clips = assertClipsReadyToRun(await listBatchClips(ctx, batch._id))
   const existing = await listRuns(ctx, batch._id)
-  if (existing.length + unique.length > MAX_RUNS_PER_BATCH) {
+  const novel = filterNovelMethods(existing, methods)
+  if (novel.length === 0) {
+    throw new Error("All selected methods already ran on this batch")
+  }
+  if (existing.length + novel.length > MAX_RUNS_PER_BATCH) {
     throw new Error(`This batch already has ${MAX_RUNS_PER_BATCH} runs`)
   }
   const now = Date.now()
   const ids: Id<"runs">[] = []
-  for (const method of unique) {
+  for (const method of novel) {
     const runId = await ctx.db.insert("runs", {
       batchId: batch._id,
       method,

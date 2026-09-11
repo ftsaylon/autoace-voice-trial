@@ -42,6 +42,20 @@ export const logLevelValidator = v.union(
 
 export default defineSchema({
   ...authTables,
+  datasets: defineTable({
+    userId: v.id("users"),
+    name: v.string(),
+    clipCount: v.number(),
+    parseIssues: v.array(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_user_and_updated", ["userId", "updatedAt"]),
+  datasetClips: defineTable({
+    datasetId: v.id("datasets"),
+    name: v.string(),
+    storageId: v.id("_storage"),
+    goldJson: v.optional(v.string()),
+  }).index("by_dataset", ["datasetId"]),
   batches: defineTable({
     userId: v.id("users"),
     name: v.string(),
@@ -57,6 +71,7 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
     runCount: v.optional(v.number()),
     methodIds: v.optional(v.array(methodValidator)),
+    datasetId: v.optional(v.id("datasets")),
   })
     .index("by_user", ["userId"])
     .index("by_user_and_created", ["userId", "createdAt"])
@@ -118,7 +133,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_user_and_created", ["userId", "createdAt"])
-    .index("by_batch_and_created", ["batchId", "createdAt"]),
+    .index("by_batch_and_created", ["batchId", "createdAt"])
+    .index("by_run_and_created", ["runId", "createdAt"]),
   userSettings: defineTable({
     userId: v.id("users"),
     defaultMethod: methodValidator,

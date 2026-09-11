@@ -1,12 +1,9 @@
 import { v } from "convex/values"
-import { internalMutation } from "./_generated/server"
+import { internalMutation, type MutationCtx } from "./_generated/server"
 import { internal } from "./_generated/api"
+import type { Doc } from "./_generated/dataModel"
 import { CLAIM_STALE_MS, MAX_CLIP_COUNT } from "../src/domain/constants"
-import {
-  hasPendingRuns,
-  pickRunningRun,
-  queuedRunsOldestFirst,
-} from "../src/application/run-policy"
+import { hasPendingRuns } from "../src/application/run-policy"
 import { MAX_RUNNING_BATCHES } from "./lib/constants"
 import { formatStoredAnalyzeError } from "../src/domain/errors"
 import {
@@ -30,82 +27,100 @@ const claimedClipValidator = v.object({
   model: v.string(),
 })
 
-export const claimNext = internalMutation({
+type ClaimedClip = {
+  clipResultId: Doc<"clipResults">["_id"]
+  clipId: Doc<"clips">["_id"]
+  batchId: Doc<"batches">["_id"]
+  runId: Doc<"runs">["_id"]
+  name: string
+  storageId: Doc<"clips">["storageId"] & string
+  userId: Doc<"users">["_id"]
+  method: string
+  model: string
+}
+
+const claimFromRun = async (
+  ctx: MutationCtx,
+  batch: Doc<"batches">,
+  run: Doc<"runs">,
+  now: number,
+  staleBefore: number,
+): Promise<ClaimedClip | null> => {
+  const running = await ctx.db
+    .query("clipResults")
+    .withIndex("by_run_and_state", (q) =>
+      q.eq("runId", run._id).eq("state", "running"),
+    )
+    .take(MAX_CLIP_COUNT)
+  const stale = running.find(
+    (row) => row.claimedAt !== undefined && row.claimedAt < staleBefore,
+  )
+  const next =
+    stale ??
+    (await ctx.db
+      .query("clipResults")
+      .withIndex("by_run_and_state", (q) =>
+        q.eq("runId", run._id).eq("state", "queued"),
+      )
+      .first())
+  if (!next) {
+    return null
+  }
+  const clip = await ctx.db.get(next.clipId)
+  if (!clip?.storageId) {
+    return null
+  }
+  await ctx.db.patch(next._id, {
+    state: "running",
+    claimedAt: now,
+    startedAt: now,
+    stage: "Starting",
+  })
+  return {
+    clipResultId: next._id,
+    clipId: clip._id,
+    batchId: batch._id,
+    runId: run._id,
+    name: clip.name,
+    storageId: clip.storageId,
+    userId: batch.userId,
+    method: run.method,
+    model: run.model,
+  }
+}
+
+export const claimNextRound = internalMutation({
   args: { batchId: v.id("batches") },
-  returns: v.union(claimedClipValidator, v.null()),
+  returns: v.array(claimedClipValidator),
   handler: async (ctx, args) => {
     const batch = await ctx.db.get(args.batchId)
-    if (!batch || batch.status === "uploading") {
-      return null
+    if (!batch || batch.status !== "running") {
+      return []
     }
     const now = Date.now()
     const staleBefore = now - CLAIM_STALE_MS
-    const runs = await listRuns(ctx, args.batchId)
+    let runs = await listRuns(ctx, args.batchId)
 
-    const claimFromRun = async (run: (typeof runs)[number]) => {
-      const running = await ctx.db
-        .query("clipResults")
-        .withIndex("by_run_and_state", (q) =>
-          q.eq("runId", run._id).eq("state", "running"),
-        )
-        .take(MAX_CLIP_COUNT)
-      const stale = running.find(
-        (row) => row.claimedAt !== undefined && row.claimedAt < staleBefore,
-      )
-      const next =
-        stale ??
-        (await ctx.db
-          .query("clipResults")
-          .withIndex("by_run_and_state", (q) =>
-            q.eq("runId", run._id).eq("state", "queued"),
-          )
-          .first())
-      if (!next) {
-        return null
-      }
-      const clip = await ctx.db.get(next.clipId)
-      if (!clip?.storageId) {
-        return null
-      }
-      await ctx.db.patch(next._id, {
-        state: "running",
-        claimedAt: now,
-        startedAt: now,
-        stage: "Starting",
-      })
-      return {
-        clipResultId: next._id,
-        clipId: clip._id,
-        batchId: batch._id,
-        runId: run._id,
-        name: clip.name,
-        storageId: clip.storageId,
-        userId: batch.userId,
-        method: run.method,
-        model: run.model,
+    for (const run of runs) {
+      if (run.status === "queued") {
+        await activateRun(ctx, run, batch)
       }
     }
+    runs = await listRuns(ctx, args.batchId)
 
-    const running = pickRunningRun(runs)
-    if (running) {
-      const claimed = await claimFromRun(running)
-      if (claimed) {
-        return claimed
+    const claims = []
+    for (const run of runs) {
+      if (run.status !== "running") {
+        continue
       }
-      await completeRunIfIdle(ctx, running)
-    }
-
-    const queued = queuedRunsOldestFirst(runs)
-    for (const run of queued) {
-      await activateRun(ctx, run, batch)
-      const claimed = await claimFromRun(run)
+      const claimed = await claimFromRun(ctx, batch, run, now, staleBefore)
       if (claimed) {
-        return claimed
+        claims.push(claimed)
+        continue
       }
       await completeRunIfIdle(ctx, run)
     }
-
-    return null
+    return claims
   },
 })
 

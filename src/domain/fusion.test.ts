@@ -95,13 +95,29 @@ describe("fusion", () => {
     expect(fused.background_noise).toEqual(presentNoise("TV", "medium"));
   });
 
-  it("gates Gemini noise only when DSP family is clean", () => {
+  it("gates low office chatter when DSP family is clean", () => {
     const fused = fuse(
       { ...semanticSatisfied, background_noise: presentNoise("office chatter", "low") },
       loudClean,
     );
     expect(fused.background_noise).toEqual(noNoise);
     expect(fused.emotional_tone).toBe("satisfied");
+  });
+
+  it("gates medium generic chatter on a clean residual", () => {
+    const fused = fuse(
+      { ...semanticSatisfied, background_noise: presentNoise("office chatter", "medium") },
+      loudClean,
+    );
+    expect(fused.background_noise).toEqual(noNoise);
+  });
+
+  it("keeps Gemini TV on a clean residual", () => {
+    const fused = fuse(
+      { ...semanticSatisfied, background_noise: presentNoise("TV", "medium") },
+      loudClean,
+    );
+    expect(fused.background_noise).toEqual(presentNoise("TV", "medium"));
   });
 
   it("keeps Gemini TV when DSP family is uncertain", () => {
@@ -144,21 +160,41 @@ describe("fusion", () => {
     expect(fused.speaker_overlap_present).toBe(false);
   });
 
-  it("vetoes Gemini overlap when the residual is a single clean talker", () => {
+  it("keeps Gemini overlap on a clean residual (dual-mono must not be vetoed)", () => {
     const fused = fuse(
       { ...semanticSatisfied, speaker_overlap_present: true },
       loudClean,
     );
-    expect(fused.speaker_overlap_present).toBe(false);
+    expect(fused.speaker_overlap_present).toBe(true);
   });
 
-  it("floors low intensity when F0 range and loudness are high without changing tone", () => {
+  it("still forces overlap from stereo both-active when the residual looks clean", () => {
+    const fused = fuse(
+      semanticSatisfied,
+      acousticMeasurements({
+        noiseFamily: "clean",
+        overlapEvidence: "stereo_both_active",
+      }),
+    );
+    expect(fused.speaker_overlap_present).toBe(true);
+  });
+
+  it("floors low intensity when F0 range is high without requiring loudness", () => {
     const fused = fuse(
       { ...semanticSatisfied, emotional_tone: "neutral", emotional_intensity: "low" },
-      acousticMeasurements({ f0RangeHz: 60, rms: 0.2 }),
+      acousticMeasurements({ f0RangeHz: 60, rms: 0.05 }),
     );
     expect(fused.emotional_tone).toBe("neutral");
     expect(fused.emotional_intensity).toBe("medium");
+  });
+
+  it("does not floor intensity from loudness alone", () => {
+    const fused = fuse(
+      { ...semanticSatisfied, emotional_tone: "neutral", emotional_intensity: "low" },
+      acousticMeasurements({ f0RangeHz: 20, rms: 0.4 }),
+    );
+    expect(fused.emotional_tone).toBe("neutral");
+    expect(fused.emotional_intensity).toBe("low");
   });
 
   it("floors upset intensity off low without changing tone", () => {

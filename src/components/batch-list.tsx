@@ -11,9 +11,11 @@ import {
   type StatusFilterOption,
 } from "@/components/status-filter-group"
 import { StatusIcon } from "@/components/status-icon"
+import { LoadingMessage } from "@/components/waveform-spinner"
 import { MethodBadge } from "@/components/batch-badges"
 import { Button } from "@/components/ui/button"
 import { downloadBatchZip } from "@/lib/download-batch-zip"
+import { formatBatchLabel, isBatchCode } from "@/lib/batch-label"
 import { formatDuration, relativeTime } from "@/lib/format-time"
 
 const FILTERS = ["all", "running", "queued", "complete", "failed", "draft"] as const
@@ -55,27 +57,33 @@ export const BatchList = ({
     }))
   }, [batches])
 
+  const codedBatches = useMemo(
+    () => batches?.filter((batch) => isBatchCode(batch.name)) ?? [],
+    [batches],
+  )
+
   const rows = useMemo(() => {
-    if (!batches) {
-      return []
-    }
     if (filter === "all") {
-      return batches
+      return codedBatches
     }
     if (filter === "running") {
-      return batches.filter(
+      return codedBatches.filter(
         (batch) => batch.status === "running" || batch.status === "uploading",
       )
     }
-    return batches.filter((batch) => batch.status === filter)
-  }, [batches, filter])
+    return codedBatches.filter((batch) => batch.status === filter)
+  }, [codedBatches, filter])
+
+  const activeFilter = FILTER_OPTIONS.find((option) => option.value === filter)
+  const hasAnyBatches = codedBatches.length > 0
+  const isFilteredEmpty = rows.length === 0 && hasAnyBatches && filter !== "all"
 
   const handleDownloadZip = async (batchId: Id<"batches">) => {
     await downloadBatchZip(convex, batchId)
   }
 
   if (batches === undefined) {
-    return <p className="text-sm text-muted-foreground">Loading batches…</p>
+    return <LoadingMessage>Loading batches…</LoadingMessage>
   }
 
   return (
@@ -88,20 +96,43 @@ export const BatchList = ({
       />
       {rows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-card p-10">
-          <h2 className="text-base font-medium">No batches yet</h2>
-          <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Upload a ZIP or folder that contains audio plus <code>labels.csv</code>.
-            The CSV needs a <code>name</code> column. <code>result_json</code> can be
-            empty on the hidden set.
-          </p>
-          {onCreateBatch ? (
-            <Button type="button" size="lg" className="mt-6" onClick={onCreateBatch}>
-              New batch
-            </Button>
+          {isFilteredEmpty ? (
+            <>
+              <h2 className="text-base font-medium">
+                No {activeFilter?.label.toLowerCase() ?? filter} batches
+              </h2>
+              <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
+                You have {codedBatches.length} batch
+                {codedBatches.length === 1 ? "" : "es"}, but none match this filter.
+                Try another status or view all batches.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="lg"
+                className="mt-6"
+                onClick={() => setFilter("all")}
+              >
+                Show all batches
+              </Button>
+            </>
           ) : (
-            <Button asChild size="lg" className="mt-6">
-              <Link href="/batches">New batch</Link>
-            </Button>
+            <>
+              <h2 className="text-base font-medium">No batches yet</h2>
+              <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
+                Start from the home page — upload once, then every batch reuses your
+                saved files.
+              </p>
+              {onCreateBatch ? (
+                <Button type="button" size="lg" className="mt-6" onClick={onCreateBatch}>
+                  New batch
+                </Button>
+              ) : (
+                <Button asChild size="lg" className="mt-6">
+                  <Link href="/batches">New batch</Link>
+                </Button>
+              )}
+            </>
           )}
         </div>
       ) : (
@@ -113,7 +144,9 @@ export const BatchList = ({
             >
               <StatusIcon status={batch.status} />
               <Link href={`/batches/${batch._id}`} className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{batch.name}</p>
+                <p className="truncate font-mono text-sm font-medium tabular-nums tracking-tight">
+                  {formatBatchLabel(batch)}
+                </p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {batch.succeededCount + batch.failedCount}/{batch.clipCount} clips
                   {(batch.runCount ?? 0) > 1 ? ` · ${batch.runCount} runs` : ""}

@@ -32,7 +32,7 @@ Shared code: `src/adapters/acoustic/measure-acoustics.ts`. No openSMILE binary.
 | Unvoiced zero-crossing rate | Broadband residue | Rabiner & Schafer; ICSI SAD |
 | Stereo energy + Pearson correlation | Overlap when both channels active and ρ is low | Xiao, Ghosh, Georgiou & Narayanan, ICASSP 2011; Ghosh et al., Interspeech 2010; Pfau, Ellis & Stolcke, ASRU 2001 |
 
-DSP noise family (not clip names): `clean` (high HNR, low unvoiced SFM — a positive single-talker class), `static` (sustained unvoiced high SFM, fraction ≥ 0.5 so a few fricatives do not count), `uncertain` (no residual evidence). `speech_like` is reserved; the mix's 4 Hz peak is the foreground talker and is not treated as TV. Overlap evidence: `none`, `stereo_both_active`, `harmonicity` (confirms Gemini only, and not when F0 range looks like arousal). Dual-mono (ρ ≥ 0.95) ignores channels. `fuse()` gates Gemini noise and overlap only on `clean`, recovers `sharp static` on `static`, and otherwise trusts Gemini.
+DSP noise family (not clip names): `clean` (high HNR, low unvoiced SFM — a positive single-talker class), `static` (sustained unvoiced high SFM, fraction ≥ 0.5 so a few fricatives do not count), `uncertain` (no residual evidence). `speech_like` is reserved; the mix's 4 Hz peak is the foreground talker and is not treated as TV. Overlap evidence: `none`, `stereo_both_active`, `harmonicity` (DSP does not set overlap from harmonicity alone). Dual-mono (ρ ≥ 0.95) ignores channels. On `clean`, `fuse()` drops only weak or generic Gemini noise (low severity or chatter/ambience); named medium/high events (TV, music, keyboard) stay. It recovers `sharp static` on `static`, and otherwise trusts Gemini. Stereo both-active forces overlap; a `clean` residual does not veto Gemini overlap. Prompt `overlap_evidence: none` means no split-channel evidence, not a veto.
 
 ## fusion
 
@@ -40,15 +40,15 @@ Role: production.
 
 Classifier: `GeminiClassifier` with `FUSION_PROMPT`.
 
-Model: `gemini-3.5-flash-lite`.
+Model: `gemini-3.6-flash`.
 
-Owns: tone from Gemini. Intensity may be floored by F0 range and loudness (Juslin & Laukka 2003; Scherer) or by the schema (upset/distressed is not low) but tone is never taken from RMS. Noise and overlap from Gemini, then `fuse()` gates only when DSP family is `clean`, recovers static, and can set stereo overlap. Quality and silence from ffmpeg.
+Owns: tone from Gemini. Intensity may be floored by F0 range (Juslin & Laukka 2003; Scherer) or by the schema (upset/distressed is not low) but tone is never taken from RMS or F0. Noise from Gemini, then `fuse()` drops only weak/generic Gemini noise on `clean`, recovers static, and can set stereo overlap. Dual-mono overlap stays with Gemini. Quality and silence from ffmpeg.
 
 Prompt: AutoAce field definitions, whole-clip tone ladder, anti-confound rules, and DSP labels `noise_family` / `overlap_evidence` only. No SNR, RMS, or filename. File part is always `clip.wav`.
 
 Thinking: `minimal`.
 
-Cost: about $0.0006 per audio minute of **billed** audio. One request per clip under 240 s. Gemini bills audio at about 32 tokens per second. Gemini 3.5 Flash-Lite input is $0.30 / 1M tokens.
+Cost: about $0.0014 per audio minute of **billed** audio through 31 Dec 2026 (Gemini 3.6 Flash intro $0.75 / 1M input). From 1 Jan 2027 the same audio is about $0.0029 / min at standard $1.50 / 1M. One request per clip under 240 s. Gemini bills audio at about 32 tokens per second. Thinking stays `minimal`.
 
 Sources:
 
@@ -74,11 +74,11 @@ Role: experiment.
 
 Classifier: `GeminiClassifier` with `LEXICAL_PROMPT`.
 
-Model: `gemini-3.5-flash-lite-lexical`.
+Model: `gemini-3.6-flash-lexical`.
 
 Owns: tone and intensity from the customer's words after an implicit transcript. Noise and overlap may use the audio, then `fuse()`. Quality and silence from `fuse()`.
 
-Cost: about $0.0006 per audio minute. One audio call under 240 s.
+Cost: about $0.0014 per audio minute. One audio call under 240 s.
 
 Source: AlloSat call-center results in [arXiv:2310.04481](https://arxiv.org/html/2310.04481). Linguistic content was the main contributor to satisfaction and generalized better than acoustics.
 
@@ -102,13 +102,13 @@ Role: experiment.
 
 Classifier: `GeminiClassifier` with `GEMINI_ONLY_PROMPT` and `ownQualityAndSilence`.
 
-Model: `gemini-3.5-flash-lite-only`.
+Model: `gemini-3.6-flash-only`.
 
 Owns: every output field, including quality and silence.
 
 `fuseQualityAndSilence` is false. The prompt does not include DSP evidence. Use this to A/B the DSP overrides.
 
-Cost: about $0.0006 per audio minute.
+Cost: about $0.0014 per audio minute.
 
 ## ffmpeg in Convex
 
@@ -116,7 +116,7 @@ The worker is a `"use node"` action. `ffmpeg-static` is listed in `convex.json` 
 
 ## Model pin
 
-Default `GEMINI_MODEL=gemini-3.5-flash-lite`. Override only for experiments. Hidden-set scoring should use `fusion` and this pin.
+Default `GEMINI_MODEL=gemini-3.6-flash`. Override only for experiments. Hidden-set scoring should use `fusion` and this pin. Do not use Flash-Lite for hidden-set scoring: it is the wrong quality tier for this taxonomy. `gemini-3.8-flash` is not pinned because `thinkingLevel: "minimal"` is unsupported and default medium thinking can blow the $0.003 / min ceiling.
 
 ## Bibliography
 
@@ -133,6 +133,6 @@ Full citations for features, fusion rules, and method choice. Thresholds come fr
 - **Ghosh, P. K., Tsiartas, A., Georgiou, P., & Narayanan, S. (2010).** Robust voice activity detection in stereo recording with crosstalk. *Interspeech 2010*. Stereo VAD in the presence of leakage; dual-mono / high correlation is not overlap.
 - **Pfau, T., Ellis, D. P. W., & Stolcke, A. (2001).** Multispeaker speech activity detection for the ICSI meeting recorder. *ASRU 2001*. Also **Morgan, N., et al. (2001).** Meetings about meetings: research at ICSI on speech in multiparty conversations. *ASRU 2001*. ICSI SAD hangover and crosstalk vs two-source distinction.
 - **Rabiner, L. R., & Schafer, R. W. (1978).** *Digital Processing of Speech Signals*. Prentice-Hall. Unvoiced zero-crossing rate.
-- **Juslin, P. N., & Laukka, P. (2003).** Communication of emotions in vocal expression and music performance: Different channels, same code? *Psychological Bulletin*, 129(5), 770–814. High arousal tracks F0 range and loudness — intensity floor only.
+- **Juslin, P. N., & Laukka, P. (2003).** Communication of emotions in vocal expression and music performance: Different channels, same code? *Psychological Bulletin*, 129(5), 770–814. High arousal tracks F0 range and loudness. Fusion floors intensity from F0 range only, never from loudness, and never maps F0 onto `emotional_tone`.
 - **Scherer, K. R. (2003).** Vocal communication of emotion: A review of research paradigms. *Speech Communication*, 40(1–2), 227–256. Same arousal mapping; production fusion never sets `emotional_tone` from RMS.
 - **Deschamps-Berger, T., Rasa, L., Lamel, L., & Dupont, S. (2023).** Acoustic and linguistic representations for speech continuous emotion recognition in call center conversations. [arXiv:2310.04481](https://arxiv.org/abs/2310.04481). AlloSat: lexical content was the main contributor to satisfaction and generalized better than acoustics — rationale for the lexical experiment, not a second Gemini call on fusion.

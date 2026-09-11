@@ -26,7 +26,7 @@ import {
 
 export { classifierIsConfigured, resolveGeminiApiKey } from "./gemini-env";
 
-export const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
+export const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
 
 export const resolveGeminiModel = (override?: string): string => {
   const fromOverride = override?.trim();

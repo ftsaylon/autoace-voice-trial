@@ -83,10 +83,12 @@ export const formatAcousticContext = (
     "DSP residual labels (context only; do not infer tone from loudness or noise from quality):",
     `- noise_family: ${acoustic.noiseFamily}`,
     `- overlap_evidence: ${acoustic.overlapEvidence}`,
-    "If noise_family is uncertain, DSP did not find electrical hiss. Still report TV, chatter, music, or other audible non-speech if you hear it.",
+    "If noise_family is uncertain, DSP found no electrical hiss. Only mark noise if a distinct non-speech event is clearly audible. Do not invent office chatter, traffic, or music from the talker alone.",
     "If noise_family is clean, only report noise when a distinct non-speech event is clearly audible. Do not invent office chatter.",
     "If noise_family is static, name the residual as sharp static unless you clearly hear a different hiss/crackle phrase.",
-    "If overlap_evidence is none, adjacent turns are not overlap. True only if two voices are simultaneous.",
+    "If overlap_evidence is none, DSP found no split-channel overlap. Still true if two voices are simultaneous on this recording.",
+    "If overlap_evidence is stereo_both_active, two independent channels are both active.",
+    "If overlap_evidence is harmonicity, DSP saw mixed periodicity; adjacent turns are still not overlap. True only if two voices are simultaneous.",
   ].join("\n")
 }
 

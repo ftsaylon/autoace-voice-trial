@@ -36,6 +36,16 @@ const clipStateFromResult = (
   return "failed"
 }
 
+export const stripClipOverlay = (clip: BaseClipRow): BaseClipRow => ({
+  _id: clip._id,
+  name: clip.name,
+  goldJson: clip.goldJson,
+  state: clip.state === "uploading" ? "uploading" : "queued",
+})
+
+export const stripClipOverlays = (clips: BaseClipRow[]): BaseClipRow[] =>
+  clips.map(stripClipOverlay)
+
 export const overlayClipsForRun = (
   clips: BaseClipRow[],
   results: ClipResultOverlay[],

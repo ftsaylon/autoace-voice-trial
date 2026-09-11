@@ -2,6 +2,7 @@ import type { ConvexReactClient } from "convex/react"
 import { api } from "@convex/_generated/api"
 import type { Id } from "@convex/_generated/dataModel"
 import { buildBatchZipBlob } from "@/application/export-batch-zip"
+import { formatBatchLabel } from "@/lib/batch-label"
 import { downloadBlobFile } from "@/lib/export-clips"
 
 export const downloadBatchZip = async (
@@ -22,8 +23,9 @@ export const downloadBatchZip = async (
           runIds: finishedRuns.map((run) => run._id),
         })
       : []
+  const batchLabel = formatBatchLabel(detail.batch)
   const blob = await buildBatchZipBlob({
-    batchName: detail.batch.name,
+    batchName: batchLabel,
     clips: detail.clips.map((clip) => ({
       _id: clip._id,
       name: clip.name,
@@ -49,5 +51,5 @@ export const downloadBatchZip = async (
       errorJson: row.errorJson,
     })),
   })
-  downloadBlobFile(`${detail.batch.name}.zip`, blob)
+  downloadBlobFile(`${batchLabel}.zip`, blob)
 }

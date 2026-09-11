@@ -5,21 +5,22 @@
  * can veto a VAD-biased "slightly impaired" from energy SNR.
  *
  * Noise: `clean` is a positive single-talker class (Boersma HNR + low unvoiced
- * SFM). Only then may DSP gate Gemini noise. `uncertain` means no residual
- * evidence — Gemini still owns TV/chatter. `static` recovers broadband hiss
- * (Johnston 1988). DSP never invents TV from the mix's 4 Hz peak.
+ * SFM). On `clean`, DSP may drop only weak or generic Gemini noise (low severity
+ * or chatter/ambience). Named medium/high events (TV, music, keyboard) stay.
+ * `uncertain` means no residual evidence — Gemini still owns TV. `static`
+ * recovers broadband hiss (Johnston 1988). DSP never invents TV from the mix's
+ * 4 Hz peak.
  *
- * Overlap: stereo both-active (Xiao et al., ICASSP 2011). Dual-mono is ignored.
- * A clean residual vetoes Gemini overlap (single periodic source). Mono
- * harmonicity only confirms Gemini, and not when F0 range looks like arousal
- * (Boakye 2008 vs Juslin & Laukka 2003).
+ * Overlap: stereo both-active (Xiao et al., ICASSP 2011) forces overlap.
+ * Dual-mono true overlap can look like one talker in the residual, so a
+ * clean class must not veto Gemini. Harmonicity does not set overlap by
+ * itself (Boakye 2008).
  *
- * Intensity floor from F0 range + loudness, and from the schema (anger/distress
- * is not low). emotional_tone is never taken from RMS or F0.
+ * Intensity floor from F0 range (Juslin & Laukka 2003) and from the schema
+ * (anger/distress is not low). emotional_tone is never taken from RMS or F0.
  */
 import {
   AROUSAL_F0_RANGE_HZ,
-  AROUSAL_RMS,
   LONG_SILENCE_SEC,
   QUALITY_SEVERE_CLIP_FRACTION,
   QUALITY_SEVERE_SNR_DB,
@@ -38,6 +39,17 @@ import type {
 
 const looksStatic = (type: string): boolean => {
   return /static|hiss|crackle|electrical/i.test(type);
+};
+
+const looksGenericChatter = (type: string): boolean => {
+  return /chatter|background speech|room tone|ambience/i.test(type);
+};
+
+const isWeakOrGenericNoise = (semantic: BackgroundNoise): boolean => {
+  if (!semantic.present) {
+    return false;
+  }
+  return semantic.severity === "low" || looksGenericChatter(semantic.type);
 };
 
 export function qualityFromAcoustic(
@@ -72,7 +84,11 @@ export function fuseNoise(
     const severity = semantic.present ? semantic.severity : "low";
     return presentNoise(type, severity);
   }
-  if (acoustic.noiseFamily === "clean" && semantic.present) {
+  if (
+    acoustic.noiseFamily === "clean" &&
+    semantic.present &&
+    isWeakOrGenericNoise(semantic)
+  ) {
     return noNoise;
   }
   return semantic;
@@ -85,12 +101,6 @@ export function fuseOverlap(
   if (acoustic.overlapEvidence === "stereo_both_active") {
     return true;
   }
-  if (acoustic.noiseFamily === "clean") {
-    return false;
-  }
-  if (acoustic.overlapEvidence === "harmonicity") {
-    return semanticOverlap;
-  }
   return semanticOverlap;
 }
 
@@ -100,11 +110,7 @@ export function fuseIntensity(
   tone: EmotionalTone,
 ): Intensity {
   let intensity = semantic;
-  if (
-    intensity === "low" &&
-    acoustic.f0RangeHz >= AROUSAL_F0_RANGE_HZ &&
-    acoustic.rms >= AROUSAL_RMS
-  ) {
+  if (intensity === "low" && acoustic.f0RangeHz >= AROUSAL_F0_RANGE_HZ) {
     intensity = "medium";
   }
   if ((tone === "upset" || tone === "distressed") && intensity === "low") {

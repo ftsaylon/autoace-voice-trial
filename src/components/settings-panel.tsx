@@ -4,6 +4,7 @@ import { useConvexAuth, useMutation, useQuery } from "convex/react"
 import { toast } from "sonner"
 import { api } from "@convex/_generated/api"
 import { MethodCards } from "@/components/method-cards"
+import { LoadingMessage } from "@/components/waveform-spinner"
 import type { AnalysisMethod } from "@/application/methods"
 
 export const SettingsPanel = () => {
@@ -12,7 +13,7 @@ export const SettingsPanel = () => {
   const setDefaultMethod = useMutation(api.settings.setDefaultMethod)
 
   if (!settings) {
-    return <p className="text-sm text-muted-foreground">Loading settings…</p>
+    return <LoadingMessage>Loading settings…</LoadingMessage>
   }
 
   const handleMethod = async (method: AnalysisMethod) => {

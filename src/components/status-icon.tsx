@@ -2,9 +2,9 @@ import {
   CheckCircle2Icon,
   CircleDashedIcon,
   Clock3Icon,
-  LoaderCircleIcon,
   XCircleIcon,
 } from "lucide-react"
+import { Spinner } from "@/components/waveform-spinner"
 import { cn } from "@/lib/utils"
 
 export const StatusIcon = ({
@@ -22,12 +22,7 @@ export const StatusIcon = ({
   className?: string
 }) => {
   if (status === "running" || status === "uploading") {
-    return (
-      <LoaderCircleIcon
-        className={cn("size-4 animate-spin text-foreground", className)}
-        aria-hidden
-      />
-    )
+    return <Spinner className={className} size={16} title={status === "running" ? "Running" : "Uploading"} />
   }
   if (status === "complete" || status === "succeeded") {
     return (

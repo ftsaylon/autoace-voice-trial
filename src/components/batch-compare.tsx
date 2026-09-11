@@ -13,9 +13,10 @@ import { CompareBars } from "@/components/compare-bars"
 import { CompareConfusion } from "@/components/compare-confusion"
 import { CompareHeatmap } from "@/components/compare-heatmap"
 import { CompareClipTable, CompareScoreMatrix } from "@/components/compare-shared"
+import { LoadingMessage } from "@/components/waveform-spinner"
 import { labelRuns } from "@/lib/run-labels"
 import { api } from "@convex/_generated/api"
-import type { Id } from "@convex/_generated/dataModel"
+import type { Doc, Id } from "@convex/_generated/dataModel"
 import type { MethodId } from "@/application/methods"
 
 type ClipRow = {
@@ -35,11 +36,13 @@ export const BatchCompare = ({
   batchId,
   clips,
   runs,
+  results: resultsProp,
   onOpenClip,
 }: {
   batchId: Id<"batches">
   clips: ClipRow[]
   runs: RunRow[]
+  results?: Doc<"clipResults">[] | undefined
   onOpenClip: (clipId: string) => void
 }) => {
   const { isAuthenticated } = useConvexAuth()
@@ -49,12 +52,13 @@ export const BatchCompare = ({
   )
   const labeledRuns = useMemo(() => labelRuns(completed), [completed])
   const runIds = useMemo(() => completed.map((run) => run._id), [completed])
-  const results = useQuery(
+  const fetchedResults = useQuery(
     api.batches.listResultsForRuns,
-    isAuthenticated && runIds.length >= 2
+    isAuthenticated && resultsProp === undefined && runIds.length >= 2
       ? { batchId, runIds: runIds as Id<"runs">[] }
       : "skip",
   )
+  const results = resultsProp ?? fetchedResults
   const [field, setField] = useState<CompareFieldKey>("emotional_tone")
   const [expandedClip, setExpandedClip] = useState<string | null>(null)
 
@@ -93,7 +97,7 @@ export const BatchCompare = ({
   }
 
   if (results === undefined) {
-    return <p className="text-sm text-muted-foreground">Loading results…</p>
+    return <LoadingMessage>Loading results…</LoadingMessage>
   }
 
   return (

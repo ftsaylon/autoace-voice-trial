@@ -10,7 +10,7 @@ Citations for the extractor and fusion rules are listed in full in [METHODS.md](
 
 **Prosody control.** Same decode. Tone comes from F0 range, speaking-rate bursts, and HNR (Eyben et al. 2016; Boersma 1993), not RMS. Noise uses the shared family. Overlap stays false in the classifier; `fuse()` may still set stereo overlap. Cost is $0. It still cannot name TV versus sharp static.
 
-**Fusion (production).** Gemini 3.5 Flash-Lite audio with constrained decoding against a Zod schema. The prompt quotes AutoAce field definitions, a whole-clip tone ladder, anti-confound rules, and DSP labels `noise_family` / `overlap_evidence` only — not SNR, RMS, or filename. The file part is always `clip.wav`. Clips up to 240 s are one request. Longer clips use non-overlapping 20 s windows. `fuse()` writes quality and silence from DSP, gates noise and overlap only when the residual is a positive `clean` class, recovers static from sustained unvoiced SFM, and can set stereo overlap. It never changes `emotional_tone`. Production pins `gemini-3.5-flash-lite` with thinking `minimal`.
+**Fusion (production).** Gemini 3.6 Flash audio with constrained decoding against a Zod schema. The prompt quotes AutoAce field definitions, a whole-clip tone ladder, anti-confound rules, and DSP labels `noise_family` / `overlap_evidence` only — not SNR, RMS, or filename. The file part is always `clip.wav`. Clips up to 240 s are one request. Longer clips use non-overlapping 20 s windows. `fuse()` writes quality and silence from DSP, drops only weak/generic Gemini noise on a positive `clean` residual (named medium/high events such as TV stay), recovers static from sustained unvoiced SFM, and can set stereo overlap. Dual-mono overlap stays with Gemini; prompt `none` is split-channel context, not a veto. It never changes `emotional_tone`. Production pins `gemini-3.6-flash` with thinking `minimal`.
 
 **Lexical experiment.** Same Gemini model and cost. The prompt requires a customer transcript first, then tone from the words (AlloSat / Deschamps-Berger et al., arXiv:2310.04481). Quality, silence, and DSP noise/overlap gates still come from `fuse()`.
 
@@ -34,13 +34,13 @@ On every method except `gemini_only`:
 
 - `audio_quality` from energy SNR (5 / 15 dB) with WADA-SNR as a veto on VAD-biased “slight,” plus clip fraction.
 - `long_silence_present` from an 8 s pause with a short VAD hangover.
-- Noise: do not invent from low SNR. Gate Gemini noise only when family is `clean`. If family is `static`, force present and type `sharp static` (keep Gemini’s type only when it already looks like static). If family is `uncertain`, trust Gemini — including TV.
-- Overlap: stereo both-active + low correlation sets true. Dual-mono (ρ ≥ 0.95) ignores channels. A `clean` residual vetoes Gemini overlap. Mono harmonicity only confirms Gemini, and not when F0 range looks like arousal.
-- Intensity: F0 range + loudness may floor `low` → `medium` (Juslin & Laukka 2003; Scherer). Upset/distressed is not `low` (schema). **`emotional_tone` is never taken from RMS or F0.**
+- Noise: do not invent from low SNR. On `clean`, drop only weak or generic Gemini noise (low severity or chatter/ambience). Keep named medium/high events (TV, music, keyboard). If family is `static`, force present and type `sharp static` (keep Gemini’s type only when it already looks like static). If family is `uncertain`, Gemini may name a distinct audible event (TV, static) but must not invent chatter or traffic from the talker alone.
+- Overlap: stereo both-active + low correlation sets true. Dual-mono (ρ ≥ 0.95) ignores channels. A `clean` residual does not veto Gemini overlap. Harmonicity does not set overlap by itself. Prompt `overlap_evidence: none` means no split-channel overlap, not that simultaneous speech is absent.
+- Intensity: F0 range may floor `low` → `medium` (Juslin & Laukka 2003; Scherer). Loudness is not required. Upset/distressed is not `low` (schema). **`emotional_tone` is never taken from RMS or F0.**
 
 ## Cost
 
-Gemini bills audio at about 32 tokens per second, or 1920 tokens per minute. Gemini 3.5 Flash-Lite input is $0.30 / 1M tokens, so audio alone is about **$0.0006 per audio minute**, plus a small structured-output completion. That stays under the $0.003 / min ceiling if thinking stays at `minimal` **and** typical calls are one request (≤ 240 s, no overlapping windows). `fusion`, `lexical`, and `gemini_only` each send audio once per window. A two-call ensemble is not offered.
+Gemini bills audio at about 32 tokens per second, or 1920 tokens per minute. Gemini 3.6 Flash intro input is $0.75 / 1M tokens through 31 Dec 2026, so audio alone is about **$0.0014 per audio minute**, plus a small structured-output completion. From 1 Jan 2027 standard input is $1.50 / 1M (~$0.0029 / min). Both stay under the $0.003 / min ceiling if thinking stays at `minimal` **and** typical calls are one request (≤ 240 s, no overlapping windows). `fusion`, `lexical`, and `gemini_only` each send audio once per window. A two-call ensemble is not offered. `gemini-3.8-flash` is not the production pin: `minimal` thinking is unsupported and default medium thinking is billed as output.
 
 Audio leaves AutoAce infrastructure: Convex stores the bytes, Google receives windows for Gemini methods. Retention follows those providers' policies. Disclose that on evaluation.
 
@@ -73,7 +73,7 @@ A Fusion run on 2026-09-10 22:53 (same three clips, Gemini 3.6 Flash + the previ
 - Overlap 1/3. Fusion false-alarmed overlap on the clean upset call and missed overlap on the TV call. Lexical was 2/3 on overlap.
 - Quality and silence 3/3.
 
-That `none` bin was doing two jobs (confident clean and “don’t know”). This revision splits `clean` vs `uncertain`, stops treating mix-envelope 4 Hz as TV, and switches production to Flash-Lite. It is **not** fitted to 3/3.
+That `none` bin was doing two jobs (confident clean and “don’t know”). This revision splits `clean` vs `uncertain` and stops treating mix-envelope 4 Hz as TV. A later Flash-Lite run (23:14) showed Lite is the wrong quality tier for this taxonomy (invented road noise under an over-permissive uncertain prompt; missed dual-mono overlap when `clean` vetoed Gemini). Production is pinned to Gemini 3.6 Flash with thinking `minimal`. It is **not** fitted to 3/3.
 
 Do not treat n = 3 numbers as the hidden-set score. Feature thresholds are locked by synthetic tests in `src/adapters/acoustic/measure-acoustics.test.ts`.
 

@@ -18,7 +18,7 @@ A classifier is one implementation of `SemanticClassifier`. It returns tone, int
 
 ## Model
 
-A model is the backend label stored on the batch as `model`. Examples are `gemini-3.5-flash-lite` and `acoustic-baseline`. It is display metadata. It is not the method id.
+A model is the backend label stored on the batch as `model`. Examples are `gemini-3.6-flash` and `acoustic-baseline`. It is display metadata. It is not the method id.
 
 ## Feature extractor
 
@@ -26,7 +26,7 @@ The feature extractor is `FfmpegAcousticAnalyzer` plus `measureStereo` in `src/a
 
 ## Late fusion
 
-Late fusion combines outputs after each subsystem has already decided. In this repo, `fuse()` in `src/domain/fusion.ts` writes `audio_quality` and `long_silence_present` from DSP, gates noise with the DSP family, may set stereo overlap, and may floor intensity. It never changes `emotional_tone`. The method named `fusion` uses that function. The function also runs for `baseline`, `lexical`, and `prosody`. The method `gemini_only` skips it.
+Late fusion combines outputs after each subsystem has already decided. In this repo, `fuse()` in `src/domain/fusion.ts` writes `audio_quality` and `long_silence_present` from DSP, drops only weak/generic Gemini noise on a `clean` residual, may set stereo overlap, and may floor intensity from F0 range (not loudness). It never changes `emotional_tone`. The method named `fusion` uses that function. The function also runs for `baseline`, `lexical`, and `prosody`. The method `gemini_only` skips it.
 
 ## Control
 

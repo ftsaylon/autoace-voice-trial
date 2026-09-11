@@ -75,7 +75,7 @@ export default function LoginPage() {
           </h1>
           <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
             Sign in with the trial credentials. Concurrent batches keep processing
-            while you move between list, logs, and settings.
+            while you move between batches, history, and settings.
           </p>
         </section>
         <Card className="w-full shadow-none">

@@ -25,6 +25,7 @@ export const HARMONICITY_HNR_MAX_DB = 6;
 export const HARMONICITY_SFM_MAX = 0.25;
 /** Intensity floor only — never maps onto emotional_tone (Juslin & Laukka 2003; Scherer). */
 export const AROUSAL_F0_RANGE_HZ = 50;
+/** Unused by fusion. Intensity does not require loudness. */
 export const AROUSAL_RMS = 0.15;
 
 export const QUALITY_SEVERE_SNR_DB = 5;
